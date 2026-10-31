@@ -278,6 +278,18 @@
 
         .pager { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1.25rem; }
 
+        .chip.is-missing { border-style: dashed; background: transparent; }
+        .check { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+        .page-input {
+            width: 5rem;
+            padding: 0.35rem 0.5rem;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--surface);
+            color: var(--ink);
+            font: inherit;
+        }
+
         /* ---------- Divers ---------- */
 
         .reset {
@@ -368,16 +380,13 @@
         <section aria-labelledby="maps-title">
             <h2 id="maps-title">Carte des couleurs</h2>
             <p class="map-help">Teinte en largeur, luminosité en hauteur : blanc en haut, noir en bas.</p>
-            <h3>Version points</h3>
-            <canvas class="map" id="map-points" width="600" height="380" role="img" aria-label="Carte des couleurs obtenues, avec un point par couleur"></canvas>
-            <h3>Version à révéler</h3>
-            <canvas class="map" id="map-reveal" width="600" height="380" role="img" aria-label="Carte dévoilée peu à peu par les couleurs obtenues"></canvas>
+            <canvas class="map" id="map-points" width="600" height="380" role="img" aria-label="Carte des couleurs obtenues, avec un carré par couleur"></canvas>
         </section>
 
         <section aria-labelledby="collection-title">
             <h2 id="collection-title">Collection</h2>
             <ul class="legend" id="legend"></ul>
-            <p class="map-help">Les 100 dernières couleurs obtenues.</p>
+            <p class="map-help">Les 20 dernières couleurs obtenues.</p>
             <p class="empty" id="empty">Aucune couleur pour l’instant. Fais un premier tirage.</p>
             <ul class="grid" id="grid"></ul>
             <button class="btn btn-block" id="open-all" type="button" hidden>Voir toutes les couleurs</button>
@@ -395,9 +404,12 @@
                     <legend>Raretés affichées</legend>
                     <div id="all-filters"></div>
                 </fieldset>
+                <label class="check"><input type="checkbox" id="all-missing"> Afficher les couleurs manquantes</label>
                 <label class="sort">Tri
                     <select id="all-sort">
                         <option value="recent">Plus récentes d’abord</option>
+                        <option value="rarest">Rareté : plus rares d’abord</option>
+                        <option value="common">Rareté : plus communes d’abord</option>
                         <option value="asc">Code croissant</option>
                         <option value="desc">Code décroissant</option>
                     </select>
@@ -407,7 +419,7 @@
             <ul class="grid" id="all-grid"></ul>
             <nav class="pager" id="all-pager" aria-label="Pagination">
                 <button class="btn" id="all-prev" type="button">Précédent</button>
-                <span id="all-page"></span>
+                <label>Page <input class="page-input" id="all-page-input" type="number" min="1" inputmode="numeric"> sur <span id="all-pages"></span></label>
                 <button class="btn" id="all-next" type="button">Suivant</button>
             </nav>
         </dialog>
@@ -417,7 +429,8 @@
     <script>
         "use strict";
 
-        const STORAGE_KEY = "color-gacha:v1";
+        const STORAGE_KEY = "color-gacha:v2";
+        const OLD_STORAGE_KEY = "color-gacha:v1";
         const HEX_PATTERN = /^#[0-9a-f]{6}$/;
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -442,11 +455,12 @@
             allSummary: document.getElementById("all-summary"),
             allGrid: document.getElementById("all-grid"),
             pager: document.getElementById("all-pager"),
-            pageLabel: document.getElementById("all-page"),
+            pageInput: document.getElementById("all-page-input"),
+            pageTotal: document.getElementById("all-pages"),
+            allMissing: document.getElementById("all-missing"),
             prev: document.getElementById("all-prev"),
             next: document.getElementById("all-next"),
             points: document.getElementById("map-points"),
-            reveal: document.getElementById("map-reveal"),
             toast: document.getElementById("toast"),
         };
 
@@ -457,29 +471,73 @@
             return { version: 1, pulls: 0, last: null, colors: [] };
         }
 
+        // Format compact : les codes sont collés les uns aux autres (6 caractères par couleur, du plus récent
+        // au plus ancien) et seuls les doublons ont un compteur. L'ancien format (v1) est lu puis remplacé.
         function loadState() {
             try {
                 const raw = localStorage.getItem(STORAGE_KEY);
-                if (!raw) return freshState();
-                const data = JSON.parse(raw);
-                if (!data || !Array.isArray(data.colors)) return freshState();
-                return {
-                    version: 1,
-                    pulls: Number.isFinite(data.pulls) ? data.pulls : 0,
-                    last: HEX_PATTERN.test(data.last) ? data.last : null,
-                    colors: data.colors.filter(c => c && HEX_PATTERN.test(c.hex)),
-                };
+                if (raw) {
+                    const data = JSON.parse(raw);
+                    if (data && typeof data.list === "string") {
+                        const dups = data.dups || {};
+                        const colors = [];
+                        for (let i = 0; i + 6 <= data.list.length; i += 6) {
+                            const code = data.list.slice(i, i + 6);
+                            if (/^[0-9a-f]{6}$/.test(code)) {
+                                colors.push({ hex: "#" + code, count: dups[code] > 1 ? Math.floor(dups[code]) : 1 });
+                            }
+                        }
+                        const last = typeof data.last === "string" ? "#" + data.last : null;
+                        return {
+                            version: 2,
+                            pulls: Number.isFinite(data.pulls) ? data.pulls : 0,
+                            last: HEX_PATTERN.test(last) ? last : null,
+                            colors,
+                        };
+                    }
+                }
+                const old = localStorage.getItem(OLD_STORAGE_KEY);
+                if (old) {
+                    const data = JSON.parse(old);
+                    if (data && Array.isArray(data.colors)) {
+                        return {
+                            version: 2,
+                            pulls: Number.isFinite(data.pulls) ? data.pulls : 0,
+                            last: HEX_PATTERN.test(data.last) ? data.last : null,
+                            colors: data.colors
+                                .filter(c => c && HEX_PATTERN.test(c.hex))
+                                .map(c => ({ hex: c.hex, count: c.count > 1 ? Math.floor(c.count) : 1 })),
+                        };
+                    }
+                }
             } catch (err) {
-                return freshState();
+                // Sauvegarde illisible : on repart de zéro.
             }
+            return freshState();
         }
 
         function saveState() {
+            const dups = {};
+            for (const c of state.colors) if (c.count > 1) dups[c.hex.slice(1)] = c.count;
+            const data = JSON.stringify({
+                v: 2,
+                pulls: state.pulls,
+                last: state.last && state.last.slice(1),
+                dups,
+                list: state.colors.map(c => c.hex.slice(1)).join(""),
+            });
             try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                localStorage.setItem(STORAGE_KEY, data);
             } catch (err) {
-                // Stockage indisponible (navigation privée, quota…) : le jeu continue sans sauvegarde.
+                try {
+                    localStorage.removeItem(OLD_STORAGE_KEY); // libère la place de l'ancien format
+                    localStorage.setItem(STORAGE_KEY, data);
+                } catch (err2) {
+                    toast("Sauvegarde impossible : stockage plein");
+                    return;
+                }
             }
+            localStorage.removeItem(OLD_STORAGE_KEY);
         }
 
         let state = loadState();
@@ -573,7 +631,7 @@
 
         /* ---------- Cartes ---------- */
 
-        const MAP_W = 600, MAP_H = 380, REVEAL_RADIUS = 60;
+        const MAP_W = 600, MAP_H = 380, PIXEL = 6;
 
         function hexToHsl(hex) {
             const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -610,64 +668,25 @@
         }
 
         const pointsCtx = els.points.getContext("2d");
-        const revealCtx = els.reveal.getContext("2d");
-        const maskLayer = document.createElement("canvas");
-        const composed = document.createElement("canvas");
-        maskLayer.width = composed.width = MAP_W;
-        maskLayer.height = composed.height = MAP_H;
-        const maskCtx = maskLayer.getContext("2d");
-        const composedCtx = composed.getContext("2d");
 
-        // Version A : la carte est toujours visible, chaque couleur y est un point (plus gros si plus rare).
+        // Un carré de taille fixe par couleur, aligné sur une grille de PIXEL px : les couleurs voisines
+        // tombent dans la même case (la plus récente est dessus) au lieu de se chevaucher.
         function addPoints(colors) {
             for (const color of colors) {
                 const { x, y } = mapPosition(color.hex);
-                pointsCtx.beginPath();
-                pointsCtx.arc(x, y, 4 + tierOf(color.hex) * 2, 0, Math.PI * 2);
+                const px = Math.floor(Math.min(x, MAP_W - 1) / PIXEL) * PIXEL;
+                const py = Math.floor(Math.min(y, MAP_H - 1) / PIXEL) * PIXEL;
+                pointsCtx.fillStyle = "#1b1f24";
+                pointsCtx.fillRect(px, py, PIXEL, PIXEL);
                 pointsCtx.fillStyle = color.hex;
-                pointsCtx.fill();
-                pointsCtx.lineWidth = 3;
-                pointsCtx.strokeStyle = "#1b1f24";
-                pointsCtx.stroke();
-                pointsCtx.lineWidth = 1.5;
-                pointsCtx.strokeStyle = "#ffffff";
-                pointsCtx.stroke();
+                pointsCtx.fillRect(px + 1, py + 1, PIXEL - 2, PIXEL - 2);
             }
-        }
-
-        // Version B : la carte est cachée, chaque couleur dévoile une zone autour de sa position.
-        function addToMask(colors) {
-            for (const color of colors) {
-                const { x, y } = mapPosition(color.hex);
-                const mask = maskCtx.createRadialGradient(x, y, 0, x, y, REVEAL_RADIUS);
-                mask.addColorStop(0, "rgba(0,0,0,1)");
-                mask.addColorStop(1, "rgba(0,0,0,0)");
-                maskCtx.fillStyle = mask;
-                maskCtx.fillRect(x - REVEAL_RADIUS, y - REVEAL_RADIUS, REVEAL_RADIUS * 2, REVEAL_RADIUS * 2);
-            }
-        }
-
-        function composeReveal() {
-            composedCtx.globalCompositeOperation = "source-over";
-            composedCtx.clearRect(0, 0, MAP_W, MAP_H);
-            composedCtx.drawImage(maskLayer, 0, 0);
-            composedCtx.globalCompositeOperation = "source-in";
-            paintBase(composedCtx);
-            revealCtx.fillStyle = "#262b31";
-            revealCtx.fillRect(0, 0, MAP_W, MAP_H);
-            revealCtx.drawImage(composed, 0, 0);
         }
 
         // added : couleurs ajoutées (de la plus ancienne à la plus récente) ; sans argument, tout est redessiné.
         function drawMaps(added) {
-            const colors = added || state.colors.slice().reverse();
-            if (!added) {
-                paintBase(pointsCtx);
-                maskCtx.clearRect(0, 0, MAP_W, MAP_H);
-            }
-            addPoints(colors);
-            addToMask(colors);
-            composeReveal();
+            if (!added) paintBase(pointsCtx);
+            addPoints(added || state.colors.slice().reverse());
         }
 
         /* ---------- Affichage ---------- */
@@ -685,17 +704,18 @@
             els.unique.textContent = state.colors.length.toLocaleString("fr-FR");
         }
 
-        const RECENT_COUNT = 100; // nombre de couleurs affichées dans la collection principale
+        const RECENT_COUNT = 20; // nombre de couleurs affichées dans la collection principale
 
         function makeChip(color) {
             const item = document.createElement("li");
             const chip = document.createElement("button");
             chip.type = "button";
             chip.className = "chip";
+            if (!color.count) chip.classList.add("is-missing");
             chip.dataset.hex = color.hex;
             const tierIndex = tierOf(color.hex);
             chip.style.setProperty("--tier", RARITIES[tierIndex].color);
-            chip.setAttribute("aria-label", `Copier ${color.hex}, ${RARITIES[tierIndex].name}, obtenue ${color.count} fois`);
+            chip.setAttribute("aria-label", `Copier ${color.hex}, ${RARITIES[tierIndex].name}, ${color.count ? `obtenue ${color.count} fois` : "pas encore obtenue"}`);
 
             const swatch = document.createElement("span");
             swatch.className = "chip-swatch";
@@ -765,9 +785,10 @@
                 existing.count += 1;
                 return { hex, isNew: false, count: existing.count };
             }
-            const entry = { hex, count: 1, at: Date.now() };
+            const entry = { hex, count: 1 };
             state.colors.unshift(entry);
             index.set(hex, entry);
+            if (tierMap) tierMap[parseInt(hex.slice(1), 16)] |= OWNED;
             return { hex, isNew: true, count: 1 };
         }
 
@@ -813,23 +834,99 @@
         /* ---------- Liste complète ---------- */
 
         const PAGE_SIZE = 1000;
-        const view = { tiers: new Set(RARITIES.keys()), sort: "recent", page: 0 };
+        const view = { tiers: new Set(RARITIES.keys()), sort: "recent", page: 0, missing: false };
+
+        // Couleurs manquantes : une table de 16 777 216 cases (une par couleur possible) donne sa rareté,
+        // plus le bit OWNED si elle est dans la collection. Elle est calculée à la première utilisation.
+        const OWNED = 0x80;
+        let tierMap = null;
+        let tierTotals = null; // nombre de couleurs possibles par rareté
+        const TIER_BY_MAX = Array.from({ length: 7 }, (_, m) => RARITIES.reduce((t, r, i) => (m >= r.repeats ? i : t), 0));
+
+        function buildTierMap() {
+            tierMap = new Uint8Array(1 << 24);
+            tierTotals = RARITIES.map(() => 0);
+            const seen = new Uint8Array(16);
+            for (let v = 0; v < 1 << 24; v++) {
+                seen.fill(0);
+                let max = 0;
+                for (let shift = 0; shift < 24; shift += 4) {
+                    const n = ++seen[(v >> shift) & 15];
+                    if (n > max) max = n;
+                }
+                const t = TIER_BY_MAX[max];
+                tierMap[v] = t;
+                tierTotals[t]++;
+            }
+            for (const c of state.colors) tierMap[parseInt(c.hex.slice(1), 16)] |= OWNED;
+        }
+
+        // Un segment = un ensemble de raretés parcouru dans un sens. Avec un tri par rareté, il y a un segment
+        // par rareté ; sinon un seul, qui les regroupe toutes.
+        function missingSegments(sel) {
+            const tiers = sel.map((on, t) => (on ? t : -1)).filter(t => t >= 0);
+            const segment = (list, desc) => {
+                const want = new Uint8Array(RARITIES.length);
+                list.forEach(t => (want[t] = 1));
+                return { want, desc, count: list.reduce((n, t) => n + tierTotals[t] - tierCounts[t], 0) };
+            };
+            if (view.sort === "rarest") return tiers.reverse().map(t => segment([t], false));
+            if (view.sort === "common") return tiers.map(t => segment([t], false));
+            return [segment(tiers, view.sort === "desc")];
+        }
+
+        // Renvoie les codes (entiers) des couleurs manquantes : `skip` résultats ignorés, puis `take` pris.
+        function scanMissing(segments, skip, take) {
+            const out = [];
+            for (const seg of segments) {
+                if (skip >= seg.count) { skip -= seg.count; continue; }
+                const step = seg.desc ? -1 : 1;
+                for (let v = seg.desc ? 0xffffff : 0; v >= 0 && v <= 0xffffff; v += step) {
+                    const t = tierMap[v];
+                    if (t & OWNED || !seg.want[t]) continue;
+                    if (skip > 0) { skip--; continue; }
+                    out.push(v);
+                    if (out.length === take) return out;
+                }
+            }
+            return out;
+        }
 
         function renderAll() {
-            const list = state.colors.filter(c => view.tiers.has(tierOf(c.hex)));
-            if (view.sort !== "recent") {
-                const dir = view.sort === "asc" ? 1 : -1;
-                list.sort((a, b) => (a.hex < b.hex ? -dir : dir)); // les codes sont uniques
-            }
-            const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
-            view.page = Math.min(view.page, pages - 1);
-            const start = view.page * PAGE_SIZE;
+            if (view.missing && !tierMap) buildTierMap();
+            const fmt = n => n.toLocaleString("fr-FR");
+            const sel = RARITIES.map((_, i) => view.tiers.has(i));
+            let total, getPage;
 
-            els.allGrid.replaceChildren(...list.slice(start, start + PAGE_SIZE).map(makeChip));
-            els.allSummary.textContent =
-                `${list.length.toLocaleString("fr-FR")} sur ${state.colors.length.toLocaleString("fr-FR")} couleurs`;
+            if (view.missing) {
+                total = sel.reduce((n, on, t) => n + (on ? tierTotals[t] - tierCounts[t] : 0), 0);
+                getPage = start => scanMissing(missingSegments(sel), start, PAGE_SIZE)
+                    .map(v => ({ hex: "#" + v.toString(16).padStart(6, "0"), count: 0 }));
+            } else {
+                const rows = [];
+                for (const c of state.colors) {
+                    const t = tierOf(c.hex);
+                    if (sel[t]) rows.push({ c, t });
+                }
+                const byCode = (a, b) => (a.c.hex < b.c.hex ? -1 : 1); // les codes sont uniques
+                if (view.sort === "asc") rows.sort(byCode);
+                else if (view.sort === "desc") rows.sort((a, b) => -byCode(a, b));
+                else if (view.sort === "rarest") rows.sort((a, b) => b.t - a.t || byCode(a, b));
+                else if (view.sort === "common") rows.sort((a, b) => a.t - b.t || byCode(a, b));
+                total = rows.length;
+                getPage = start => rows.slice(start, start + PAGE_SIZE).map(r => r.c);
+            }
+
+            const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+            view.page = Math.min(view.page, pages - 1);
+            els.allGrid.replaceChildren(...getPage(view.page * PAGE_SIZE).map(makeChip));
+            els.allSummary.textContent = view.missing
+                ? `${fmt(total)} couleurs manquantes`
+                : `${fmt(total)} sur ${fmt(state.colors.length)} couleurs`;
             els.pager.hidden = pages <= 1;
-            els.pageLabel.textContent = `Page ${view.page + 1} sur ${pages}`;
+            els.pageInput.value = view.page + 1;
+            els.pageInput.max = pages;
+            els.pageTotal.textContent = fmt(pages);
             els.prev.disabled = view.page === 0;
             els.next.disabled = view.page >= pages - 1;
         }
@@ -870,6 +967,26 @@
         });
         els.allClose.addEventListener("click", () => els.allDialog.close());
 
+        els.pageInput.addEventListener("change", () => {
+            view.page = Math.max(0, (parseInt(els.pageInput.value, 10) || 1) - 1);
+            renderAll();
+            els.allDialog.scrollTop = 0;
+        });
+
+        els.allMissing.addEventListener("change", () => {
+            view.missing = els.allMissing.checked;
+            view.sort = view.missing ? "rarest" : "recent";
+            els.allSort.value = view.sort;
+            els.allSort.options[0].disabled = view.missing; // « plus récentes » n'a pas de sens pour des couleurs jamais obtenues
+            view.page = 0;
+            if (view.missing && !tierMap) {
+                els.allSummary.textContent = "Calcul des couleurs en cours…";
+                setTimeout(renderAll, 30);
+            } else {
+                renderAll();
+            }
+        });
+
         /* ---------- Événements ---------- */
 
         pullButtons.forEach(btn => btn.addEventListener("click", () => pull(Number(btn.dataset.count) || 1)));
@@ -889,6 +1006,8 @@
             if (!confirm("Effacer tous les tirages et la collection ?")) return;
             state = freshState();
             index = new Map();
+            tierMap = null;
+            tierTotals = null;
             saveState();
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
