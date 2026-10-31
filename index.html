@@ -225,6 +225,59 @@
         .map-help { margin: 0 0 1rem; color: var(--muted); }
         .map { display: block; width: 100%; height: auto; border-radius: 16px; background: var(--surface); }
 
+        /* ---------- Liste complète ---------- */
+
+        [hidden] { display: none !important; }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: 2px solid var(--ink);
+            border-radius: 12px;
+            background: var(--surface);
+            color: var(--ink);
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn:disabled { opacity: 0.4; cursor: default; }
+        .btn-block { display: block; width: 100%; margin-top: 1rem; padding: 0.9rem; }
+
+        dialog.all {
+            width: min(60rem, calc(100% - 2rem));
+            max-height: calc(100% - 2rem);
+            padding: 1.25rem;
+            border: 0;
+            border-radius: 20px;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: var(--font);
+        }
+
+        dialog.all::backdrop { background: rgba(27, 31, 36, 0.55); }
+
+        .all-head { display: flex; align-items: center; gap: 1rem; }
+        .all-head h2 { margin: 0; }
+        .all-status { margin-left: auto; color: var(--muted); font-size: 0.9rem; }
+
+        .all-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem 2rem; margin: 1rem 0; }
+        .filters { margin: 0; padding: 0; border: 0; }
+        .filters legend { margin-bottom: 0.35rem; padding: 0; color: var(--muted); font-size: 0.875rem; }
+        .filters label { display: inline-flex; align-items: center; gap: 0.4rem; margin-right: 1rem; cursor: pointer; }
+        .dot { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; }
+
+        .sort { display: flex; flex-direction: column; gap: 0.35rem; color: var(--muted); font-size: 0.875rem; }
+        .sort select {
+            padding: 0.45rem 0.6rem;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--surface);
+            color: var(--ink);
+            font: inherit;
+        }
+
+        .pager { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1.25rem; }
+
         /* ---------- Divers ---------- */
 
         .reset {
@@ -324,11 +377,40 @@
         <section aria-labelledby="collection-title">
             <h2 id="collection-title">Collection</h2>
             <ul class="legend" id="legend"></ul>
+            <p class="map-help">Les 100 dernières couleurs obtenues.</p>
             <p class="empty" id="empty">Aucune couleur pour l’instant. Fais un premier tirage.</p>
             <ul class="grid" id="grid"></ul>
+            <button class="btn btn-block" id="open-all" type="button" hidden>Voir toutes les couleurs</button>
         </section>
 
         <button class="reset" id="reset" type="button">Effacer la progression</button>
+        <dialog class="all" id="all-dialog" aria-labelledby="all-title">
+            <div class="all-head">
+                <h2 id="all-title">Toutes les couleurs</h2>
+                <span class="all-status" id="all-status" role="status"></span>
+                <button class="btn" id="all-close" type="button">Fermer</button>
+            </div>
+            <div class="all-controls">
+                <fieldset class="filters">
+                    <legend>Raretés affichées</legend>
+                    <div id="all-filters"></div>
+                </fieldset>
+                <label class="sort">Tri
+                    <select id="all-sort">
+                        <option value="recent">Plus récentes d’abord</option>
+                        <option value="asc">Code croissant</option>
+                        <option value="desc">Code décroissant</option>
+                    </select>
+                </label>
+            </div>
+            <p class="map-help" id="all-summary"></p>
+            <ul class="grid" id="all-grid"></ul>
+            <nav class="pager" id="all-pager" aria-label="Pagination">
+                <button class="btn" id="all-prev" type="button">Précédent</button>
+                <span id="all-page"></span>
+                <button class="btn" id="all-next" type="button">Suivant</button>
+            </nav>
+        </dialog>
         <div class="toast" id="toast" aria-hidden="true"></div>
     </main>
 
@@ -351,6 +433,18 @@
             grid: document.getElementById("grid"),
             reset: document.getElementById("reset"),
             legend: document.getElementById("legend"),
+            openAll: document.getElementById("open-all"),
+            allDialog: document.getElementById("all-dialog"),
+            allClose: document.getElementById("all-close"),
+            allStatus: document.getElementById("all-status"),
+            allFilters: document.getElementById("all-filters"),
+            allSort: document.getElementById("all-sort"),
+            allSummary: document.getElementById("all-summary"),
+            allGrid: document.getElementById("all-grid"),
+            pager: document.getElementById("all-pager"),
+            pageLabel: document.getElementById("all-page"),
+            prev: document.getElementById("all-prev"),
+            next: document.getElementById("all-next"),
             points: document.getElementById("map-points"),
             reveal: document.getElementById("map-reveal"),
             toast: document.getElementById("toast"),
@@ -389,6 +483,7 @@
         }
 
         let state = loadState();
+        let index = new Map(state.colors.map(c => [c.hex, c])); // accès rapide par code
 
         /* ---------- Couleurs ---------- */
 
@@ -456,15 +551,22 @@
             return "#" + chars.map(c => c.toString(16)).join("");
         }
 
-        function renderLegend() {
-            const found = RARITIES.map(() => 0);
-            state.colors.forEach(c => found[tierOf(c.hex)]++);
+        let tierCounts = RARITIES.map(() => 0);
+
+        // added : couleurs ajoutées depuis le dernier affichage ; sans argument, tout est recompté.
+        function renderLegend(added) {
+            if (added) {
+                added.forEach(c => tierCounts[tierOf(c.hex)]++);
+            } else {
+                tierCounts = RARITIES.map(() => 0);
+                state.colors.forEach(c => tierCounts[tierOf(c.hex)]++);
+            }
             els.legend.replaceChildren();
             RARITIES.forEach((r, i) => {
                 const li = document.createElement("li");
                 li.style.setProperty("--tier", r.color);
                 const rule = r.repeats ? `${r.repeats} identiques` : "2 identiques ou moins";
-                li.textContent = `${r.name} (${rule}) : ${found[i]}`;
+                li.textContent = `${r.name} (${rule}) : ${tierCounts[i].toLocaleString("fr-FR")}`;
                 els.legend.append(li);
             });
         }
@@ -507,51 +609,65 @@
             ctx.fillRect(0, 0, MAP_W, MAP_H);
         }
 
+        const pointsCtx = els.points.getContext("2d");
+        const revealCtx = els.reveal.getContext("2d");
+        const maskLayer = document.createElement("canvas");
+        const composed = document.createElement("canvas");
+        maskLayer.width = composed.width = MAP_W;
+        maskLayer.height = composed.height = MAP_H;
+        const maskCtx = maskLayer.getContext("2d");
+        const composedCtx = composed.getContext("2d");
+
         // Version A : la carte est toujours visible, chaque couleur y est un point (plus gros si plus rare).
-        function drawPoints() {
-            const ctx = els.points.getContext("2d");
-            paintBase(ctx);
-            for (const color of state.colors) {
+        function addPoints(colors) {
+            for (const color of colors) {
                 const { x, y } = mapPosition(color.hex);
-                ctx.beginPath();
-                ctx.arc(x, y, 4 + tierOf(color.hex) * 2, 0, Math.PI * 2);
-                ctx.fillStyle = color.hex;
-                ctx.fill();
-                ctx.lineWidth = 3;
-                ctx.strokeStyle = "#1b1f24";
-                ctx.stroke();
-                ctx.lineWidth = 1.5;
-                ctx.strokeStyle = "#ffffff";
-                ctx.stroke();
+                pointsCtx.beginPath();
+                pointsCtx.arc(x, y, 4 + tierOf(color.hex) * 2, 0, Math.PI * 2);
+                pointsCtx.fillStyle = color.hex;
+                pointsCtx.fill();
+                pointsCtx.lineWidth = 3;
+                pointsCtx.strokeStyle = "#1b1f24";
+                pointsCtx.stroke();
+                pointsCtx.lineWidth = 1.5;
+                pointsCtx.strokeStyle = "#ffffff";
+                pointsCtx.stroke();
             }
         }
 
         // Version B : la carte est cachée, chaque couleur dévoile une zone autour de sa position.
-        function drawReveal() {
-            const ctx = els.reveal.getContext("2d");
-            ctx.fillStyle = "#262b31";
-            ctx.fillRect(0, 0, MAP_W, MAP_H);
-
-            const layer = document.createElement("canvas");
-            layer.width = MAP_W;
-            layer.height = MAP_H;
-            const lctx = layer.getContext("2d");
-            for (const color of state.colors) {
+        function addToMask(colors) {
+            for (const color of colors) {
                 const { x, y } = mapPosition(color.hex);
-                const mask = lctx.createRadialGradient(x, y, 0, x, y, REVEAL_RADIUS);
+                const mask = maskCtx.createRadialGradient(x, y, 0, x, y, REVEAL_RADIUS);
                 mask.addColorStop(0, "rgba(0,0,0,1)");
                 mask.addColorStop(1, "rgba(0,0,0,0)");
-                lctx.fillStyle = mask;
-                lctx.fillRect(x - REVEAL_RADIUS, y - REVEAL_RADIUS, REVEAL_RADIUS * 2, REVEAL_RADIUS * 2);
+                maskCtx.fillStyle = mask;
+                maskCtx.fillRect(x - REVEAL_RADIUS, y - REVEAL_RADIUS, REVEAL_RADIUS * 2, REVEAL_RADIUS * 2);
             }
-            lctx.globalCompositeOperation = "source-in";
-            paintBase(lctx);
-            ctx.drawImage(layer, 0, 0);
         }
 
-        function drawMaps() {
-            drawPoints();
-            drawReveal();
+        function composeReveal() {
+            composedCtx.globalCompositeOperation = "source-over";
+            composedCtx.clearRect(0, 0, MAP_W, MAP_H);
+            composedCtx.drawImage(maskLayer, 0, 0);
+            composedCtx.globalCompositeOperation = "source-in";
+            paintBase(composedCtx);
+            revealCtx.fillStyle = "#262b31";
+            revealCtx.fillRect(0, 0, MAP_W, MAP_H);
+            revealCtx.drawImage(composed, 0, 0);
+        }
+
+        // added : couleurs ajoutées (de la plus ancienne à la plus récente) ; sans argument, tout est redessiné.
+        function drawMaps(added) {
+            const colors = added || state.colors.slice().reverse();
+            if (!added) {
+                paintBase(pointsCtx);
+                maskCtx.clearRect(0, 0, MAP_W, MAP_H);
+            }
+            addPoints(colors);
+            addToMask(colors);
+            composeReveal();
         }
 
         /* ---------- Affichage ---------- */
@@ -569,54 +685,65 @@
             els.unique.textContent = state.colors.length.toLocaleString("fr-FR");
         }
 
-        function renderCollection() {
-            els.grid.replaceChildren();
-            els.empty.hidden = state.colors.length > 0;
+        const RECENT_COUNT = 100; // nombre de couleurs affichées dans la collection principale
 
-            for (const color of state.colors) {
-                const item = document.createElement("li");
-                const chip = document.createElement("button");
-                chip.type = "button";
-                chip.className = "chip";
-                chip.dataset.hex = color.hex;
-                chip.style.setProperty("--tier", RARITIES[tierOf(color.hex)].color);
-                chip.setAttribute("aria-label", `Copier ${color.hex}, obtenue ${color.count} fois`);
+        function makeChip(color) {
+            const item = document.createElement("li");
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "chip";
+            chip.dataset.hex = color.hex;
+            const tierIndex = tierOf(color.hex);
+            chip.style.setProperty("--tier", RARITIES[tierIndex].color);
+            chip.setAttribute("aria-label", `Copier ${color.hex}, ${RARITIES[tierIndex].name}, obtenue ${color.count} fois`);
 
-                const swatch = document.createElement("span");
-                swatch.className = "chip-swatch";
-                swatch.style.background = color.hex;
+            const swatch = document.createElement("span");
+            swatch.className = "chip-swatch";
+            swatch.style.background = color.hex;
 
-                const label = document.createElement("span");
-                label.className = "chip-label";
-                label.textContent = color.hex;
+            const label = document.createElement("span");
+            label.className = "chip-label";
+            label.textContent = color.hex;
 
-                const tier = document.createElement("span");
-                tier.className = "chip-tier";
-                tier.textContent = RARITIES[tierOf(color.hex)].name;
+            const tier = document.createElement("span");
+            tier.className = "chip-tier";
+            tier.textContent = RARITIES[tierIndex].name;
 
-                chip.append(swatch, label, tier);
+            chip.append(swatch, label, tier);
 
-                if (color.count > 1) {
-                    const count = document.createElement("span");
-                    count.className = "chip-count";
-                    count.textContent = "×" + color.count;
-                    chip.append(count);
-                }
-
-                item.append(chip);
-                els.grid.append(item);
+            if (color.count > 1) {
+                const count = document.createElement("span");
+                count.className = "chip-count";
+                count.textContent = "×" + color.count;
+                chip.append(count);
             }
+
+            item.append(chip);
+            return item;
         }
 
-        function render() {
+        function renderCollection() {
+            els.grid.replaceChildren(...state.colors.slice(0, RECENT_COUNT).map(makeChip));
+            els.empty.hidden = state.colors.length > 0;
+            els.openAll.hidden = state.colors.length === 0;
+            els.openAll.textContent = `Voir toutes les couleurs (${state.colors.length.toLocaleString("fr-FR")})`;
+        }
+
+        function render(added) {
             renderStats();
             renderCollection();
-            renderLegend();
-            drawMaps();
+            renderLegend(added);
+            drawMaps(added);
         }
 
         let toastTimer;
         function toast(message) {
+            if (els.allDialog.open) {
+                els.allStatus.textContent = message;
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => (els.allStatus.textContent = ""), 1600);
+                return;
+            }
             els.toast.textContent = message;
             els.toast.classList.add("is-visible");
             clearTimeout(toastTimer);
@@ -631,14 +758,16 @@
 
         // Ajoute une couleur à la collection et renvoie le résultat du tirage.
         function record(hex) {
-            const existing = state.colors.find(c => c.hex === hex);
+            const existing = index.get(hex);
             state.pulls += 1;
             state.last = hex;
             if (existing) {
                 existing.count += 1;
                 return { hex, isNew: false, count: existing.count };
             }
-            state.colors.unshift({ hex, count: 1, at: Date.now() });
+            const entry = { hex, count: 1, at: Date.now() };
+            state.colors.unshift(entry);
+            index.set(hex, entry);
             return { hex, isNew: true, count: 1 };
         }
 
@@ -659,7 +788,9 @@
                 }
             }
 
-            const result = hexes.map(record).find(r => r.hex === best);
+            const results = hexes.map(record);
+            const result = results.find(r => r.hex === best);
+            const added = results.filter(r => r.isNew).map(r => index.get(r.hex));
             const rarity = RARITIES[tierOf(best)].name;
             const status = result.isNew ? "nouvelle couleur" : `déjà obtenue, ×${result.count}`;
             const note = count === 1 ? `${rarity}, ${status}` : `Meilleur des ${count} : ${rarity}, ${status}`;
@@ -673,17 +804,77 @@
                 );
             }
             els.announce.textContent = `${best}. ${note}.`;
-            render();
+            render(added);
 
             pullButtons.forEach(b => (b.disabled = false));
             busy = false;
         }
 
+        /* ---------- Liste complète ---------- */
+
+        const PAGE_SIZE = 1000;
+        const view = { tiers: new Set(RARITIES.keys()), sort: "recent", page: 0 };
+
+        function renderAll() {
+            const list = state.colors.filter(c => view.tiers.has(tierOf(c.hex)));
+            if (view.sort !== "recent") {
+                const dir = view.sort === "asc" ? 1 : -1;
+                list.sort((a, b) => (a.hex < b.hex ? -dir : dir)); // les codes sont uniques
+            }
+            const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+            view.page = Math.min(view.page, pages - 1);
+            const start = view.page * PAGE_SIZE;
+
+            els.allGrid.replaceChildren(...list.slice(start, start + PAGE_SIZE).map(makeChip));
+            els.allSummary.textContent =
+                `${list.length.toLocaleString("fr-FR")} sur ${state.colors.length.toLocaleString("fr-FR")} couleurs`;
+            els.pager.hidden = pages <= 1;
+            els.pageLabel.textContent = `Page ${view.page + 1} sur ${pages}`;
+            els.prev.disabled = view.page === 0;
+            els.next.disabled = view.page >= pages - 1;
+        }
+
+        function goToPage(delta) {
+            view.page += delta;
+            renderAll();
+            els.allDialog.scrollTop = 0;
+        }
+
+        RARITIES.forEach((r, i) => {
+            const label = document.createElement("label");
+            const box = document.createElement("input");
+            box.type = "checkbox";
+            box.checked = true;
+            box.addEventListener("change", () => {
+                if (box.checked) view.tiers.add(i); else view.tiers.delete(i);
+                view.page = 0;
+                renderAll();
+            });
+            const dot = document.createElement("span");
+            dot.className = "dot";
+            dot.style.background = r.color;
+            label.append(box, dot, r.name);
+            els.allFilters.append(label);
+        });
+
+        els.allSort.addEventListener("change", () => {
+            view.sort = els.allSort.value;
+            view.page = 0;
+            renderAll();
+        });
+        els.prev.addEventListener("click", () => goToPage(-1));
+        els.next.addEventListener("click", () => goToPage(1));
+        els.openAll.addEventListener("click", () => {
+            renderAll();
+            els.allDialog.showModal();
+        });
+        els.allClose.addEventListener("click", () => els.allDialog.close());
+
         /* ---------- Événements ---------- */
 
         pullButtons.forEach(btn => btn.addEventListener("click", () => pull(Number(btn.dataset.count) || 1)));
 
-        els.grid.addEventListener("click", async event => {
+        document.addEventListener("click", async event => {
             const chip = event.target.closest(".chip");
             if (!chip) return;
             try {
@@ -697,6 +888,7 @@
         els.reset.addEventListener("click", () => {
             if (!confirm("Effacer tous les tirages et la collection ?")) return;
             state = freshState();
+            index = new Map();
             saveState();
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
