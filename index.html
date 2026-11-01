@@ -290,6 +290,8 @@
             font: inherit;
         }
 
+        .convert-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
         /* ---------- Divers ---------- */
 
         .reset {
@@ -377,6 +379,15 @@
             </div>
         </dl>
 
+        <section aria-labelledby="convert-title">
+            <h2 id="convert-title">Doubles</h2>
+            <p class="map-help" id="convert-info"></p>
+            <div class="convert-row">
+                <button class="btn" id="convert-one" type="button"></button>
+                <button class="btn" id="convert-all" type="button">Tout convertir</button>
+            </div>
+        </section>
+
         <section aria-labelledby="maps-title">
             <h2 id="maps-title">Carte des couleurs</h2>
             <p class="map-help">Teinte en largeur, luminosité en hauteur : blanc en haut, noir en bas.</p>
@@ -458,6 +469,9 @@
             pageInput: document.getElementById("all-page-input"),
             pageTotal: document.getElementById("all-pages"),
             allMissing: document.getElementById("all-missing"),
+            convertInfo: document.getElementById("convert-info"),
+            convertOne: document.getElementById("convert-one"),
+            convertAll: document.getElementById("convert-all"),
             prev: document.getElementById("all-prev"),
             next: document.getElementById("all-next"),
             points: document.getElementById("map-points"),
@@ -542,6 +556,7 @@
 
         let state = loadState();
         let index = new Map(state.colors.map(c => [c.hex, c])); // accès rapide par code
+        let spare = state.colors.reduce((n, c) => n + c.count - 1, 0); // doubles : exemplaires en plus du premier
 
         /* ---------- Couleurs ---------- */
 
@@ -754,6 +769,7 @@
             renderCollection();
             renderLegend(added);
             drawMaps(added);
+            renderConvert();
         }
 
         let toastTimer;
@@ -783,6 +799,7 @@
             state.last = hex;
             if (existing) {
                 existing.count += 1;
+                spare += 1;
                 return { hex, isNew: false, count: existing.count };
             }
             const entry = { hex, count: 1 };
@@ -987,6 +1004,75 @@
             }
         });
 
+        /* ---------- Conversion des doubles ---------- */
+
+        const CONVERT_COST = 10; // nombre de doubles nécessaires pour obtenir 1 nouvelle couleur
+
+        function renderConvert() {
+            const units = Math.floor(spare / CONVERT_COST);
+            els.convertInfo.textContent =
+                `${spare.toLocaleString("fr-FR")} doubles en réserve. ${CONVERT_COST} doubles donnent 1 couleur jamais obtenue.`;
+            els.convertOne.textContent = `Convertir ${CONVERT_COST} doubles`;
+            els.convertAll.textContent = units > 1 ? `Tout convertir (${units.toLocaleString("fr-FR")} couleurs)` : "Tout convertir";
+            els.convertOne.disabled = units < 1;
+            els.convertAll.disabled = units < 1;
+        }
+
+        // Convertit jusqu'à maxUnits lots de doubles en couleurs jamais obtenues (même chances de rareté qu'un tirage).
+        function convert(maxUnits) {
+            if (busy) return;
+            const units = Math.min(maxUnits, Math.floor(spare / CONVERT_COST));
+            const added = [];
+            for (let i = 0; i < units; i++) {
+                let hex = null;
+                for (let tries = 0; tries < 1000 && !hex; tries++) {
+                    const candidate = drawHex();
+                    if (!index.has(candidate)) hex = candidate;
+                }
+                if (!hex) break;
+                const entry = { hex, count: 1 };
+                index.set(hex, entry);
+                if (tierMap) tierMap[parseInt(hex.slice(1), 16)] |= OWNED;
+                added.push(entry);
+            }
+            if (!added.length) {
+                toast("Aucune couleur disponible pour la conversion");
+                return;
+            }
+
+            // On retire les doubles utilisés : chaque couleur garde toujours au moins un exemplaire.
+            let need = added.length * CONVERT_COST;
+            spare -= need;
+            for (const c of state.colors) {
+                if (need === 0) break;
+                if (c.count > 1) {
+                    const take = Math.min(c.count - 1, need);
+                    c.count -= take;
+                    need -= take;
+                }
+            }
+            state.colors = added.slice().reverse().concat(state.colors);
+            saveState();
+
+            const best = added.reduce((a, b) => (tierOf(b.hex) > tierOf(a.hex) ? b : a));
+            const rarity = RARITIES[tierOf(best.hex)].name;
+            const note = added.length === 1
+                ? `Convertie : ${rarity}, nouvelle couleur`
+                : `${added.length} couleurs converties, la meilleure : ${rarity}`;
+            showColor(best.hex, note);
+            if (!reduceMotion) {
+                els.stage.animate(
+                    [{ transform: "scale(1.03)" }, { transform: "scale(1)" }],
+                    { duration: 300, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }
+                );
+            }
+            els.announce.textContent = `${best.hex}. ${note}.`;
+            render(added);
+        }
+
+        els.convertOne.addEventListener("click", () => convert(1));
+        els.convertAll.addEventListener("click", () => convert(Infinity));
+
         /* ---------- Événements ---------- */
 
         pullButtons.forEach(btn => btn.addEventListener("click", () => pull(Number(btn.dataset.count) || 1)));
@@ -1008,6 +1094,7 @@
             index = new Map();
             tierMap = null;
             tierTotals = null;
+            spare = 0;
             saveState();
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
