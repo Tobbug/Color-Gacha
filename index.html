@@ -60,7 +60,7 @@
             border-radius: 28px;
             background: #ffffff;
             color: var(--ink);
-            transition: background-color 0.06s linear, color 0.06s linear;
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
 
         .stage.is-empty {
@@ -292,6 +292,103 @@
 
         .convert-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
+        /* ---------- Machine à sous ---------- */
+
+        .stage { --reel-size: clamp(1.6rem, 8vw, 3rem); --cell-h: calc(var(--reel-size) * 1.15); }
+        .slot, .stops { display: flex; align-items: center; gap: 0.25rem; }
+        .stops { margin-top: 0.5rem; }
+
+        .slot-hash {
+            width: 0.6em;
+            font-size: var(--reel-size);
+            font-weight: 800;
+            line-height: 1;
+            text-align: center;
+        }
+
+        .reels { position: relative; display: flex; flex: 1; gap: 0.25rem; min-width: 0; }
+
+        /* cadre de la ligne du milieu */
+        .slot-reels::after {
+            content: "";
+            position: absolute;
+            left: -3px;
+            right: -3px;
+            top: var(--cell-h);
+            height: var(--cell-h);
+            border: 2px solid rgba(27, 31, 36, 0.55);
+            border-radius: 10px;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .reel {
+            position: relative;
+            flex: 1 1 0;
+            min-width: 0;
+            height: calc(var(--cell-h) * 3);
+            overflow: hidden;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.94);
+            color: #1b1f24;
+            box-shadow: inset 0 0 0 1px rgba(27, 31, 36, 0.12);
+        }
+
+        .strip { will-change: transform; }
+
+        .strip div {
+            height: var(--cell-h);
+            font-size: var(--reel-size);
+            font-weight: 800;
+            line-height: var(--cell-h);
+            text-align: center;
+        }
+
+        /* contour d'un symbole de la meilleure combinaison */
+        .hit {
+            position: absolute;
+            left: 3px;
+            right: 3px;
+            height: calc(var(--cell-h) - 6px);
+            margin-top: 3px;
+            border: 3px solid var(--tier, #1b1f24);
+            border-radius: 8px;
+            outline: 1px solid rgba(27, 31, 36, 0.5);
+            background: color-mix(in srgb, var(--tier, #1b1f24) 18%, transparent);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .reel.is-empty .strip { visibility: hidden; }
+
+        .reel.is-empty::after {
+            content: "?";
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            font-size: var(--reel-size);
+            font-weight: 800;
+            color: var(--muted);
+        }
+
+        .stop {
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 0.35rem 0;
+            border: 2px solid #1b1f24;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #1b1f24;
+            font: inherit;
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .stop:disabled { opacity: 0.4; cursor: default; }
+        .manual-toggle { margin-top: 0.75rem; }
+
         /* ---------- Divers ---------- */
 
         .reset {
@@ -357,13 +454,21 @@
 
         <section aria-label="Tirage">
             <div class="stage is-empty" id="stage">
-                <p class="hex" id="hex">#??????</p>
+                <div class="slot" role="img" id="slot" aria-label="Aucune couleur tirée">
+                    <span class="slot-hash" aria-hidden="true">#</span>
+                    <div class="reels slot-reels" id="reels"></div>
+                </div>
+                <div class="stops" id="stops" hidden>
+                    <span class="slot-hash" aria-hidden="true" style="visibility: hidden">#</span>
+                    <div class="reels" id="stop-buttons"></div>
+                </div>
                 <p class="note" id="note">Ta première couleur t’attend.</p>
             </div>
             <div class="pull-row">
                 <button class="pull" id="pull" type="button">Tirer une couleur</button>
-                <button class="pull pull-multi" type="button" data-count="5000000" aria-label="Tirer 5000000 couleurs">×5000000</button>
+                <button class="pull pull-multi" type="button" data-count="1000000" aria-label="Tirer 1000000 couleurs">×1000000</button>
             </div>
+            <label class="check manual-toggle"><input type="checkbox" id="manual-mode"> Arrêt manuel des colonnes</label>
             <p class="sr-only" id="announce" role="status"></p>
         </section>
 
@@ -396,7 +501,7 @@
         <section aria-labelledby="collection-title">
             <h2 id="collection-title">Collection</h2>
             <ul class="legend" id="legend"></ul>
-            <p class="map-help">Les 20 dernières couleurs obtenues.</p>
+            <p class="map-help">Les 20 dernières couleurs obtenues, les plus rares du dernier tirage en premier.</p>
             <p class="empty" id="empty">Aucune couleur pour l’instant. Fais un premier tirage.</p>
             <ul class="grid" id="grid"></ul>
             <button class="btn btn-block" id="open-all" type="button" hidden>Voir toutes les couleurs</button>
@@ -446,7 +551,11 @@
 
         const els = {
             stage: document.getElementById("stage"),
-            hex: document.getElementById("hex"),
+            slot: document.getElementById("slot"),
+            reelBox: document.getElementById("reels"),
+            stops: document.getElementById("stops"),
+            stopButtons: document.getElementById("stop-buttons"),
+            manual: document.getElementById("manual-mode"),
             note: document.getElementById("note"),
             pull: document.getElementById("pull"),
             announce: document.getElementById("announce"),
@@ -705,11 +814,11 @@
 
         /* ---------- Affichage ---------- */
 
-        function showColor(hex, note) {
+        function showColor(hex, note, keepReels) {
             els.stage.classList.remove("is-empty");
             els.stage.style.background = hex;
             els.stage.style.color = textColorFor(hex);
-            els.hex.textContent = hex;
+            if (!keepReels) setReels(hex);
             if (note !== undefined) els.note.textContent = note;
         }
 
@@ -791,56 +900,87 @@
         const pullButtons = document.querySelectorAll(".pull");
         let busy = false;
 
-        // Ajoute une couleur à la collection et renvoie le résultat du tirage.
+        // Ajoute une couleur à la collection. Renvoie la nouvelle entrée, ou null si la couleur était déjà
+        // obtenue (elle devient alors un double). pull() insère ensuite toutes les nouvelles entrées d'un coup.
         function record(hex) {
             const existing = index.get(hex);
-            state.pulls += 1;
-            state.last = hex;
             if (existing) {
                 existing.count += 1;
                 spare += 1;
-                return { hex, isNew: false, count: existing.count };
+                return null;
             }
             const entry = { hex, count: 1 };
-            state.colors.unshift(entry);
             index.set(hex, entry);
             if (tierMap) tierMap[parseInt(hex.slice(1), 16)] |= OWNED;
-            return { hex, isNew: true, count: 1 };
+            return entry;
+        }
+
+        const PATHS = 3 ** 6;                  // un symbole visible par colonne : 3 choix, 6 colonnes
+        const HEADLINE_PATH = (PATHS - 1) / 2; // le chemin qui reste sur la ligne du milieu
+
+        // Les trois symboles visibles (haut, milieu, bas) de chaque colonne quand la ligne du milieu affiche `headline`.
+        function gridColumns(headline) {
+            return [...headline.slice(1)].map((ch, c) => {
+                const strip = STRIPS[c];
+                const k = strip.indexOf(ch);
+                return [strip[(k + 15) % 16], ch, strip[(k + 1) % 16]];
+            });
         }
 
         async function pull(count = 1) {
-            if (busy) return;
+            if (busy) {
+                if (stopAll) stopAll(); // pendant un tirage manuel, le bouton principal arrête les colonnes restantes
+                return;
+            }
             busy = true;
             pullButtons.forEach(b => (b.disabled = true));
 
-            const hexes = Array.from({ length: count }, drawHex);
-            const best = hexes.reduce((a, b) => (tierOf(b) > tierOf(a) ? b : a));
-
-            // Défilement rapide de couleurs avant de révéler le résultat (tirage simple uniquement)
-            if (count === 1 && !reduceMotion) {
-                els.note.textContent = "Tirage en cours…";
-                for (let i = 0; i < 10; i++) {
-                    showColor(randomHex());
-                    await sleep(70);
+            // Chaque tirage place une couleur vedette (rareté tirée au sort) sur la ligne du milieu. Toutes les
+            // couleurs qu'on peut former avec les symboles visibles (un par colonne) rejoignent la collection.
+            const headlines = Array.from({ length: count }, drawHex);
+            const fresh = [];
+            let best = null;
+            headlines.forEach((headline, p) => {
+                const cols = gridColumns(headline);
+                for (let n = 0; n < PATHS; n++) {
+                    let hex = "#";
+                    for (let c = 0, m = n; c < 6; c++, m = Math.floor(m / 3)) hex += cols[c][m % 3];
+                    const tier = tierOf(hex);
+                    const entry = record(hex);
+                    if (entry) fresh.push({ entry, tier });
+                    const better = !best || tier > best.tier ||
+                        (tier === best.tier && n === HEADLINE_PATH && best.pull === p && best.n !== HEADLINE_PATH);
+                    if (better) {
+                        best = { hex, tier, n, pull: p, headline, isNew: best && best.hex === hex ? best.isNew : Boolean(entry) };
+                    }
                 }
-            }
+            });
 
-            const results = hexes.map(record);
-            const result = results.find(r => r.hex === best);
-            const added = results.filter(r => r.isNew).map(r => index.get(r.hex));
-            const rarity = RARITIES[tierOf(best)].name;
-            const status = result.isNew ? "nouvelle couleur" : `déjà obtenue, ×${result.count}`;
-            const note = count === 1 ? `${rarity}, ${status}` : `Meilleur des ${count} : ${rarity}, ${status}`;
+            state.pulls += count;
+            state.last = best.hex;
+            fresh.sort((a, b) => a.tier - b.tier); // les plus rares en dernier : en tête de liste, et au-dessus sur la carte
+            const added = fresh.map(f => f.entry);
+            state.colors = added.slice().reverse().concat(state.colors);
             saveState();
 
-            showColor(best, note);
+            const fmt = n => n.toLocaleString("fr-FR");
+            const rarity = RARITIES[best.tier].name;
+            const status = best.isNew ? "nouvelle couleur" : `déjà obtenue, ×${index.get(best.hex).count}`;
+            const summary = `${fmt(added.length)} ${added.length > 1 ? "nouvelles couleurs" : "nouvelle couleur"} sur ${fmt(count * PATHS)} combinaisons.`;
+            const note = `${count === 1 ? "" : `Meilleur des ${count} : `}${rarity}, ${status}. ${summary}`;
+
+            // Machine à sous pour un tirage simple ; les tirages ×10 et ×100 affichent directement la meilleure grille.
+            if (count === 1 && !reduceMotion) await spinReels(best.headline);
+            else setReels(best.headline);
+            showHits(best.n, RARITIES[best.tier].color);
+            showColor(best.hex, note, true);
             if (!reduceMotion) {
                 els.stage.animate(
                     [{ transform: "scale(1.03)" }, { transform: "scale(1)" }],
                     { duration: 300, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }
                 );
             }
-            els.announce.textContent = `${best}. ${note}.`;
+            els.announce.textContent = `${best.hex}. ${note}`;
             render(added);
 
             pullButtons.forEach(b => (b.disabled = false));
@@ -1003,6 +1143,176 @@
             }
         });
 
+        /* ---------- Machine à sous ---------- */
+
+        const DIGITS = "0123456789abcdef";
+        // Ordre des symboles sur chaque colonne : les trois symboles visibles sont consécutifs sur la bande.
+        const STRIPS = ["3f8a1d6b04e9c527", "b2e7059d4a1f86c3", "7c1a9e30f5d2b846", "e50b4c8f27a1d936", "5a0d3b9f6e2c8174", "d9406a2e8b3f7c15"];
+        const CELLS = 19;            // 16 symboles + 3 répétés pour que le défilement boucle sans coupure
+        const SPIN_SPEED = 36;       // symboles qui défilent par seconde
+        const AUTO_FIRST_STOP = 500; // arrêt automatique : première colonne (ms)
+        const AUTO_STEP = 220;       // puis une colonne toutes les 220 ms
+        const MANUAL_KEY = "color-gacha:manual";
+
+        const reels = [];
+        let manual = false;
+        let stopReel = null; // définies uniquement pendant un tirage
+        let stopAll = null;
+
+        try { manual = localStorage.getItem(MANUAL_KEY) === "1"; } catch (err) { /* préférence non mémorisée */ }
+        els.manual.checked = manual;
+        els.manual.addEventListener("change", () => {
+            manual = els.manual.checked;
+            try { localStorage.setItem(MANUAL_KEY, manual ? "1" : "0"); } catch (err) { /* ignoré */ }
+        });
+
+        // Six colonnes : chacune est une bande verticale de symboles qui défile derrière une fenêtre de 3 cases.
+        for (let i = 0; i < 6; i++) {
+            const el = document.createElement("div");
+            el.className = "reel is-empty";
+            const strip = document.createElement("div");
+            strip.className = "strip";
+            for (let k = 0; k < CELLS; k++) {
+                const cell = document.createElement("div");
+                cell.textContent = STRIPS[i][k % 16];
+                strip.append(cell);
+            }
+            const hit = document.createElement("div");
+            hit.className = "hit";
+            hit.hidden = true;
+            el.append(strip, hit);
+            els.reelBox.append(el);
+
+            const stop = document.createElement("button");
+            stop.type = "button";
+            stop.className = "stop";
+            stop.textContent = "Stop";
+            stop.setAttribute("aria-label", `Arrêter la colonne ${i + 1}`);
+            stop.addEventListener("click", () => stopReel && stopReel(i));
+            els.stopButtons.append(stop);
+
+            reels.push({ el, strip, stop, hit, pos: 0, state: "idle" });
+        }
+
+        function renderReel(r) {
+            const offset = ((r.pos % 16) + 16) % 16;
+            r.strip.style.transform = `translateY(${(-offset * 100) / CELLS}%)`;
+        }
+
+        // Position de la bande qui place le symbole `ch` sur la ligne du milieu de la colonne i.
+        const positionFor = (i, ch) => (STRIPS[i].indexOf(ch) + 15) % 16;
+
+        function hideHits() {
+            reels.forEach(r => (r.hit.hidden = true));
+        }
+
+        // Entoure les 6 symboles du chemin n : pour chaque colonne, la ligne (0 haut, 1 milieu, 2 bas) qu'il traverse.
+        function showHits(n, color) {
+            reels.forEach((r, c) => {
+                r.hit.style.top = `calc(var(--cell-h) * ${Math.floor(n / 3 ** c) % 3})`;
+                r.hit.style.setProperty("--tier", color);
+                r.hit.hidden = false;
+            });
+        }
+
+        function setReels(hex) {
+            [...hex.slice(1)].forEach((ch, i) => {
+                reels[i].pos = positionFor(i, ch);
+                reels[i].el.classList.remove("is-empty");
+                renderReel(reels[i]);
+            });
+            hideHits();
+            els.slot.setAttribute("aria-label", `Couleur ${hex} sur la ligne du milieu`);
+        }
+
+        function clearReels() {
+            reels.forEach(r => r.el.classList.add("is-empty"));
+            hideHits();
+            els.slot.setAttribute("aria-label", "Aucune couleur tirée");
+        }
+
+        // Fait défiler les colonnes puis les arrête sur les symboles de `hex` (ligne du milieu). Le résultat est
+        // décidé avant le lancement : l'arrêt manuel ne change que le rythme de la révélation.
+        function spinReels(hex) {
+            const targets = [...hex.slice(1)].map((ch, i) => positionFor(i, ch));
+            const isManual = manual;
+
+            return new Promise(resolve => {
+                let running = reels.length;
+                let last = performance.now();
+
+                hideHits();
+                els.note.textContent = isManual ? "Arrête les colonnes quand tu veux." : "Tirage en cours…";
+                els.stops.hidden = !isManual;
+                if (isManual) {
+                    els.pull.disabled = false;
+                    els.pull.textContent = "Tout arrêter";
+                }
+                reels.forEach(r => {
+                    r.state = "spin";
+                    r.stop.disabled = false;
+                    r.el.classList.remove("is-empty");
+                });
+
+                const stopOne = i => {
+                    const r = reels[i];
+                    if (r.state !== "spin") return;
+                    // La colonne ralentit jusqu'à la position voulue, au moins 4 crans plus loin.
+                    let target = Math.ceil(r.pos) + 4;
+                    target += (((targets[i] - target) % 16) + 16) % 16;
+                    r.state = "stopping";
+                    r.from = r.pos;
+                    r.target = target;
+                    r.t0 = performance.now();
+                    r.dur = ((2 * (target - r.pos)) / SPIN_SPEED) * 1000;
+                    r.stop.disabled = true;
+                };
+
+                stopReel = stopOne;
+                stopAll = () => {
+                    let k = 0;
+                    reels.forEach((r, i) => {
+                        if (r.state === "spin") setTimeout(() => stopOne(i), 150 * k++);
+                    });
+                };
+                if (!isManual) {
+                    reels.forEach((_, i) => setTimeout(() => stopOne(i), AUTO_FIRST_STOP + i * AUTO_STEP));
+                }
+
+                const frame = now => {
+                    const dt = Math.min(0.05, (now - last) / 1000);
+                    last = now;
+                    for (const r of reels) {
+                        if (r.state === "spin") {
+                            r.pos += SPIN_SPEED * dt;
+                        } else if (r.state === "stopping") {
+                            const p = Math.min(1, (now - r.t0) / r.dur);
+                            r.pos = r.from + (r.target - r.from) * (1 - (1 - p) * (1 - p));
+                            if (p === 1) {
+                                r.state = "stopped";
+                                r.el.animate(
+                                    [{ transform: "scale(1.06)" }, { transform: "scale(1)" }],
+                                    { duration: 220, easing: "ease-out" }
+                                );
+                                running--;
+                            }
+                        }
+                        renderReel(r);
+                    }
+                    if (running > 0) {
+                        requestAnimationFrame(frame);
+                        return;
+                    }
+                    stopReel = null;
+                    stopAll = null;
+                    els.stops.hidden = true;
+                    els.pull.textContent = "Tirer une couleur";
+                    resolve();
+                };
+                requestAnimationFrame(frame);
+            });
+        }
+
         /* ---------- Conversion des doubles ---------- */
 
         const CONVERT_COST = 10; // nombre de doubles nécessaires pour obtenir 1 nouvelle couleur
@@ -1098,7 +1408,7 @@
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
             els.stage.style.color = "";
-            els.hex.textContent = "#??????";
+            clearReels();
             els.note.textContent = "Ta première couleur t’attend.";
             render();
         });
