@@ -503,6 +503,8 @@
             <h2 id="collection-title">Inventaire</h2>
             <ul class="legend" id="legend"></ul>
             <p class="empty" id="empty">Aucune couleur pour l’instant. Fais un premier tirage.</p>
+            <p class="map-help" id="recent-note" hidden>Les 20 dernières couleurs obtenues, les plus rares du dernier tirage en premier. Cette liste n’est pas sauvegardée.</p>
+            <ul class="grid" id="grid"></ul>
             <button class="btn btn-block" id="open-all" type="button" hidden>Voir toutes les couleurs</button>
         </section>
 
@@ -557,6 +559,7 @@
             convertInfo: $("convert-info"), convertOne: $("convert-one"), convertAll: $("convert-all"),
             slot: $("slot"), reelBox: $("reels"), stops: $("stops"), stopButtons: $("stop-buttons"),
             manual: $("manual-mode"), toast: $("toast"),
+        grid: $("grid"), recentNote: $("recent-note"),
         };
 
         /* ---------- Outils ---------- */
@@ -890,6 +893,7 @@
         function render(buckets) {
             renderStats();
             renderInventory();
+            renderRecent();
             drawMaps(buckets);
             renderConvert();
         }
@@ -906,6 +910,28 @@
             els.toast.classList.add("is-visible");
             clearTimeout(toastTimer);
             toastTimer = setTimeout(() => els.toast.classList.remove("is-visible"), 1600);
+        }
+
+        /* ---------- Dernières couleurs (en mémoire seulement) ---------- */
+
+        const RECENT_COUNT = 20;
+        let recent = []; // jamais sauvegardée : elle repart de zéro à chaque chargement de la page
+
+        // Ajoute les nouvelles couleurs d'un tirage en tête de liste, les plus rares d'abord.
+        function pushRecent(buckets) {
+            const batch = [];
+            for (let t = buckets.length - 1; t >= 0 && batch.length < RECENT_COUNT; t--) {
+                for (const v of buckets[t]) {
+                    batch.push(v);
+                    if (batch.length === RECENT_COUNT) break;
+                }
+            }
+            if (batch.length) recent = batch.concat(recent).slice(0, RECENT_COUNT);
+        }
+
+        function renderRecent() {
+            els.recentNote.hidden = recent.length === 0;
+            els.grid.replaceChildren(...recent.map(v => makeChip({ v, count: 1 + (dups.get(v) || 0) })));
         }
 
         /* ---------- Tirage ---------- */
@@ -977,6 +1003,7 @@
                 );
             }
             els.announce.textContent = `${hexOf(best.v)}. ${note}`;
+            pushRecent(buckets);
             render(buckets);
 
             setPullDisabled(false);
@@ -1380,6 +1407,7 @@
                 );
             }
             els.announce.textContent = `${hexOf(best.v)}. ${note}.`;
+            pushRecent(buckets);
             render(buckets);
         }
 
@@ -1411,6 +1439,7 @@
             spare = 0;
             tierCounts.fill(0);
             cells.fill(-1);
+            recent = [];
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
             els.stage.style.color = "";
