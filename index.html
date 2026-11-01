@@ -466,8 +466,8 @@
             </div>
             <div class="pull-row">
                 <button class="pull" id="pull" type="button">Tirer une couleur</button>
+                <button class="pull pull-multi" type="button" data-count="10" aria-label="Tirer 10 couleurs">×10</button>
                 <button class="pull pull-multi" type="button" data-count="100" aria-label="Tirer 100 couleurs">×100</button>
-                <button class="pull pull-multi" type="button" data-count="1000" aria-label="Tirer 1000 couleurs">×1000</button>
             </div>
             <label class="check manual-toggle"><input type="checkbox" id="manual-mode"> Arrêt manuel des colonnes</label>
             <p class="sr-only" id="announce" role="status"></p>
@@ -500,11 +500,9 @@
         </section>
 
         <section aria-labelledby="collection-title">
-            <h2 id="collection-title">Collection</h2>
+            <h2 id="collection-title">Inventaire</h2>
             <ul class="legend" id="legend"></ul>
-            <p class="map-help">Les 20 dernières couleurs obtenues, les plus rares du dernier tirage en premier.</p>
             <p class="empty" id="empty">Aucune couleur pour l’instant. Fais un premier tirage.</p>
-            <ul class="grid" id="grid"></ul>
             <button class="btn btn-block" id="open-all" type="button" hidden>Voir toutes les couleurs</button>
         </section>
 
@@ -523,7 +521,6 @@
                 <label class="check"><input type="checkbox" id="all-missing"> Afficher les couleurs manquantes</label>
                 <label class="sort">Tri
                     <select id="all-sort">
-                        <option value="recent">Plus récentes d’abord</option>
                         <option value="rarest">Rareté : plus rares d’abord</option>
                         <option value="common">Rareté : plus communes d’abord</option>
                         <option value="asc">Code croissant</option>
@@ -545,146 +542,41 @@
     <script>
         "use strict";
 
-        const STORAGE_KEY = "color-gacha:v2";
-        const OLD_STORAGE_KEY = "color-gacha:v1";
-        const HEX_PATTERN = /^#[0-9a-f]{6}$/;
+        const TOTAL = 1 << 24; // nombre de couleurs possibles : 16 777 216
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+        const $ = id => document.getElementById(id);
         const els = {
-            stage: document.getElementById("stage"),
-            slot: document.getElementById("slot"),
-            reelBox: document.getElementById("reels"),
-            stops: document.getElementById("stops"),
-            stopButtons: document.getElementById("stop-buttons"),
-            manual: document.getElementById("manual-mode"),
-            note: document.getElementById("note"),
-            pull: document.getElementById("pull"),
-            announce: document.getElementById("announce"),
-            pulls: document.getElementById("stat-pulls"),
-            unique: document.getElementById("stat-unique"),
-            empty: document.getElementById("empty"),
-            grid: document.getElementById("grid"),
-            reset: document.getElementById("reset"),
-            legend: document.getElementById("legend"),
-            openAll: document.getElementById("open-all"),
-            allDialog: document.getElementById("all-dialog"),
-            allClose: document.getElementById("all-close"),
-            allStatus: document.getElementById("all-status"),
-            allFilters: document.getElementById("all-filters"),
-            allSort: document.getElementById("all-sort"),
-            allSummary: document.getElementById("all-summary"),
-            allGrid: document.getElementById("all-grid"),
-            pager: document.getElementById("all-pager"),
-            pageInput: document.getElementById("all-page-input"),
-            pageTotal: document.getElementById("all-pages"),
-            allMissing: document.getElementById("all-missing"),
-            convertInfo: document.getElementById("convert-info"),
-            convertOne: document.getElementById("convert-one"),
-            convertAll: document.getElementById("convert-all"),
-            prev: document.getElementById("all-prev"),
-            next: document.getElementById("all-next"),
-            points: document.getElementById("map-points"),
-            toast: document.getElementById("toast"),
+            stage: $("stage"), note: $("note"), pull: $("pull"), announce: $("announce"),
+            pulls: $("stat-pulls"), unique: $("stat-unique"),
+            empty: $("empty"), reset: $("reset"), legend: $("legend"), points: $("map-points"),
+            openAll: $("open-all"), allDialog: $("all-dialog"), allClose: $("all-close"), allStatus: $("all-status"),
+            allFilters: $("all-filters"), allSort: $("all-sort"), allSummary: $("all-summary"), allGrid: $("all-grid"),
+            pager: $("all-pager"), pageInput: $("all-page-input"), pageTotal: $("all-pages"),
+            prev: $("all-prev"), next: $("all-next"), allMissing: $("all-missing"),
+            convertInfo: $("convert-info"), convertOne: $("convert-one"), convertAll: $("convert-all"),
+            slot: $("slot"), reelBox: $("reels"), stops: $("stops"), stopButtons: $("stop-buttons"),
+            manual: $("manual-mode"), toast: $("toast"),
         };
 
-        /* ---------- Sauvegarde (localStorage) ---------- */
+        /* ---------- Outils ---------- */
 
-        function freshState() {
-            // colors : du plus récent au plus ancien, { hex, count, at }
-            return { version: 1, pulls: 0, last: null, colors: [] };
-        }
-
-        // Format compact : les codes sont collés les uns aux autres (6 caractères par couleur, du plus récent
-        // au plus ancien) et seuls les doublons ont un compteur. L'ancien format (v1) est lu puis remplacé.
-        function loadState() {
-            try {
-                const raw = localStorage.getItem(STORAGE_KEY);
-                if (raw) {
-                    const data = JSON.parse(raw);
-                    if (data && typeof data.list === "string") {
-                        const dups = data.dups || {};
-                        const colors = [];
-                        for (let i = 0; i + 6 <= data.list.length; i += 6) {
-                            const code = data.list.slice(i, i + 6);
-                            if (/^[0-9a-f]{6}$/.test(code)) {
-                                colors.push({ hex: "#" + code, count: dups[code] > 1 ? Math.floor(dups[code]) : 1 });
-                            }
-                        }
-                        const last = typeof data.last === "string" ? "#" + data.last : null;
-                        return {
-                            version: 2,
-                            pulls: Number.isFinite(data.pulls) ? data.pulls : 0,
-                            last: HEX_PATTERN.test(last) ? last : null,
-                            colors,
-                        };
-                    }
-                }
-                const old = localStorage.getItem(OLD_STORAGE_KEY);
-                if (old) {
-                    const data = JSON.parse(old);
-                    if (data && Array.isArray(data.colors)) {
-                        return {
-                            version: 2,
-                            pulls: Number.isFinite(data.pulls) ? data.pulls : 0,
-                            last: HEX_PATTERN.test(data.last) ? data.last : null,
-                            colors: data.colors
-                                .filter(c => c && HEX_PATTERN.test(c.hex))
-                                .map(c => ({ hex: c.hex, count: c.count > 1 ? Math.floor(c.count) : 1 })),
-                        };
-                    }
-                }
-            } catch (err) {
-                // Sauvegarde illisible : on repart de zéro.
-            }
-            return freshState();
-        }
-
-        function saveState() {
-            const dups = {};
-            for (const c of state.colors) if (c.count > 1) dups[c.hex.slice(1)] = c.count;
-            const data = JSON.stringify({
-                v: 2,
-                pulls: state.pulls,
-                last: state.last && state.last.slice(1),
-                dups,
-                list: state.colors.map(c => c.hex.slice(1)).join(""),
-            });
-            try {
-                localStorage.setItem(STORAGE_KEY, data);
-            } catch (err) {
-                try {
-                    localStorage.removeItem(OLD_STORAGE_KEY); // libère la place de l'ancien format
-                    localStorage.setItem(STORAGE_KEY, data);
-                } catch (err2) {
-                    toast("Sauvegarde impossible : stockage plein");
-                    return;
-                }
-            }
-            localStorage.removeItem(OLD_STORAGE_KEY);
-        }
-
-        let state = loadState();
-        let index = new Map(state.colors.map(c => [c.hex, c])); // accès rapide par code
-        let spare = state.colors.reduce((n, c) => n + c.count - 1, 0); // doubles : exemplaires en plus du premier
-
-        /* ---------- Couleurs ---------- */
-
-        function randomHex() {
-            const bytes = crypto.getRandomValues(new Uint8Array(3));
-            return "#" + Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
-        }
+        const hexOf = v => "#" + v.toString(16).padStart(6, "0");
+        const codeOf = hex => parseInt(hex.slice(1), 16);
+        const digitOf = (v, c) => (v >> (20 - 4 * c)) & 15; // chiffre de la colonne c (0 = à gauche)
+        const rnd = n => Math.floor(Math.random() * n);
+        const fmt = n => n.toLocaleString("fr-FR");
 
         // Choisit un texte clair ou foncé lisible sur la couleur donnée.
-        function textColorFor(hex) {
-            const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
-            const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-            return luminance > 0.6 ? "#1b1f24" : "#ffffff";
+        function textColorFor(v) {
+            const lum = (0.2126 * ((v >> 16) & 255) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255)) / 255;
+            return lum > 0.6 ? "#1b1f24" : "#ffffff";
         }
 
         /* ---------- Raretés ---------- */
 
         // repeats : nombre de fois où le même caractère apparaît dans le code (0 = 2 ou moins).
-        // weight : probabilité du tirage, en %. Modifie ces valeurs pour régler le jeu.
+        // weight : probabilité du tirage de la couleur vedette, en %. Modifie ces valeurs pour régler le jeu.
         const RARITIES = [
             { name: "Commun",     repeats: 0, weight: 80,  color: "#cdd3d9" },
             { name: "Rare",       repeats: 3, weight: 15,  color: "#2f6fed" },
@@ -692,28 +584,23 @@
             { name: "Légendaire", repeats: 5, weight: 0.9, color: "#e8890c" },
             { name: "Mythique",   repeats: 6, weight: 0.1, color: "#e0245e" },
         ];
+        // Si ces seuils changent, la sauvegarde est automatiquement recalculée au chargement.
+        const RARITY_SIG = RARITIES.map(r => r.repeats).join(",");
+        const TIER_BY_MAX = Array.from({ length: 7 }, (_, m) => RARITIES.reduce((t, r, i) => (m >= r.repeats ? i : t), 0));
 
-        const rnd = n => Math.floor(Math.random() * n);
-
-        function maxRepeat(hex) {
-            const seen = {};
+        const seen = new Uint8Array(16);
+        function tierOfCode(v) {
+            seen.fill(0);
             let max = 0;
-            for (const ch of hex.slice(1)) {
-                seen[ch] = (seen[ch] || 0) + 1;
-                max = Math.max(max, seen[ch]);
+            for (let s = 0; s < 24; s += 4) {
+                const n = ++seen[(v >> s) & 15];
+                if (n > max) max = n;
             }
-            return max;
-        }
-
-        function tierOf(hex) {
-            const max = maxRepeat(hex);
-            let tier = 0;
-            RARITIES.forEach((r, i) => { if (max >= r.repeats) tier = i; });
-            return tier;
+            return TIER_BY_MAX[max];
         }
 
         // Choisit d'abord une rareté selon les poids, puis fabrique une couleur de cette rareté.
-        function drawHex() {
+        function drawCode() {
             let roll = Math.random() * RARITIES.reduce((sum, r) => sum + r.weight, 0);
             let tier = 0;
             for (let i = 0; i < RARITIES.length; i++) {
@@ -722,43 +609,56 @@
             }
             const { repeats } = RARITIES[tier];
             if (repeats === 0) {
-                let hex;
-                do { hex = randomHex(); } while (tierOf(hex) !== 0);
-                return hex;
+                let v;
+                do { v = rnd(TOTAL); } while (tierOfCode(v) !== 0);
+                return v;
             }
             const digit = rnd(16);
             const slots = [0, 1, 2, 3, 4, 5].sort(() => Math.random() - 0.5).slice(0, repeats);
-            const chars = Array.from({ length: 6 }, (_, i) =>
-                slots.includes(i) ? digit : (digit + 1 + rnd(15)) % 16);
-            return "#" + chars.map(c => c.toString(16)).join("");
+            let v = 0;
+            for (let c = 0; c < 6; c++) v = (v << 4) | (slots.includes(c) ? digit : (digit + 1 + rnd(15)) % 16);
+            return v;
         }
 
-        let tierCounts = RARITIES.map(() => 0);
+        /* ---------- Données du joueur ---------- */
 
-        // added : couleurs ajoutées depuis le dernier affichage ; sans argument, tout est recompté.
-        function renderLegend(added) {
-            if (added) {
-                added.forEach(c => tierCounts[tierOf(c.hex)]++);
-            } else {
-                tierCounts = RARITIES.map(() => 0);
-                state.colors.forEach(c => tierCounts[tierOf(c.hex)]++);
+        const state = { pulls: 0, last: null }; // last : code de la meilleure couleur du dernier tirage
+        const owned = new Uint8Array(TOTAL >> 3);   // 1 bit par couleur possible (2 Mo) : 1 = obtenue
+        const dups = new Map();                     // code -> exemplaires en plus du premier
+        const tierCounts = RARITIES.map(() => 0);   // couleurs obtenues, par rareté
+        let spare = 0;                              // total des doubles
+
+        const isOwned = v => (owned[v >> 3] >> (v & 7)) & 1;
+        const uniqueCount = () => tierCounts.reduce((a, b) => a + b, 0);
+
+        // Ajoute une couleur. Renvoie true si elle est nouvelle ; sinon elle devient un double.
+        function acquire(v, tier) {
+            if (isOwned(v)) {
+                dups.set(v, (dups.get(v) || 0) + 1);
+                spare++;
+                return false;
             }
-            els.legend.replaceChildren();
-            RARITIES.forEach((r, i) => {
-                const li = document.createElement("li");
-                li.style.setProperty("--tier", r.color);
-                const rule = r.repeats ? `${r.repeats} identiques` : "2 identiques ou moins";
-                li.textContent = `${r.name} (${rule}) : ${tierCounts[i].toLocaleString("fr-FR")}`;
-                els.legend.append(li);
-            });
+            owned[v >> 3] |= 1 << (v & 7);
+            tierCounts[tier]++;
+            return true;
         }
 
-        /* ---------- Cartes ---------- */
+        function recountTiers() {
+            tierCounts.fill(0);
+            for (let v = 0; v < TOTAL; v++) if (isOwned(v)) tierCounts[tierOfCode(v)]++;
+        }
+
+        /* ---------- Carte des couleurs ---------- */
 
         const MAP_W = 600, MAP_H = 380, PIXEL = 6;
+        const CELL_COLS = Math.ceil(MAP_W / PIXEL);
+        const CELL_ROWS = Math.ceil(MAP_H / PIXEL);
+        const cells = new Int32Array(CELL_COLS * CELL_ROWS).fill(-1); // couleur affichée dans chaque case (-1 = vide)
+        const pointsCtx = els.points.getContext("2d");
 
-        function hexToHsl(hex) {
-            const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+        // Case de la carte : teinte en largeur, luminosité en hauteur (blanc en haut, noir en bas).
+        function cellOf(v) {
+            const r = ((v >> 16) & 255) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
             const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
             let h = 0;
             if (d) {
@@ -767,15 +667,11 @@
                 else h = (r - g) / d + 4;
                 h *= 60;
             }
-            return { h, l: (max + min) / 2 };
+            const x = Math.min((h / 360) * MAP_W, MAP_W - 1);
+            const y = Math.min((1 - (max + min) / 2) * MAP_H, MAP_H - 1);
+            return Math.floor(y / PIXEL) * CELL_COLS + Math.floor(x / PIXEL);
         }
 
-        function mapPosition(hex) {
-            const { h, l } = hexToHsl(hex);
-            return { x: (h / 360) * MAP_W, y: (1 - l) * MAP_H };
-        }
-
-        // Dégradé complet : teintes en largeur, blanc en haut, noir en bas.
         function paintBase(ctx) {
             const hues = ctx.createLinearGradient(0, 0, MAP_W, 0);
             for (let i = 0; i <= 6; i++) hues.addColorStop(i / 6, `hsl(${i * 60}, 100%, 50%)`);
@@ -791,93 +687,210 @@
             ctx.fillRect(0, 0, MAP_W, MAP_H);
         }
 
-        const pointsCtx = els.points.getContext("2d");
-
-        // Un carré de taille fixe par couleur, aligné sur une grille de PIXEL px : les couleurs voisines
-        // tombent dans la même case (la plus récente est dessus) au lieu de se chevaucher.
-        function addPoints(colors) {
-            for (const color of colors) {
-                const { x, y } = mapPosition(color.hex);
-                const px = Math.floor(Math.min(x, MAP_W - 1) / PIXEL) * PIXEL;
-                const py = Math.floor(Math.min(y, MAP_H - 1) / PIXEL) * PIXEL;
-                pointsCtx.fillStyle = "#1b1f24";
-                pointsCtx.fillRect(px, py, PIXEL, PIXEL);
-                pointsCtx.fillStyle = color.hex;
-                pointsCtx.fillRect(px + 1, py + 1, PIXEL - 2, PIXEL - 2);
-            }
+        function drawCell(idx) {
+            if (cells[idx] < 0) return;
+            const px = (idx % CELL_COLS) * PIXEL;
+            const py = Math.floor(idx / CELL_COLS) * PIXEL;
+            pointsCtx.fillStyle = "#1b1f24";
+            pointsCtx.fillRect(px, py, PIXEL, PIXEL);
+            pointsCtx.fillStyle = hexOf(cells[idx]);
+            pointsCtx.fillRect(px + 1, py + 1, PIXEL - 2, PIXEL - 2);
         }
 
-        // added : couleurs ajoutées (de la plus ancienne à la plus récente) ; sans argument, tout est redessiné.
-        function drawMaps(added) {
-            if (!added) paintBase(pointsCtx);
-            addPoints(added || state.colors.slice().reverse());
+        // buckets[tier] = codes à placer. Une case montre la couleur la plus rare qu'elle contient
+        // (à rareté égale, la plus récente). Seules les cases modifiées sont redessinées.
+        function placeColors(buckets, draw) {
+            buckets.forEach((bucket, tier) => {
+                for (const v of bucket) {
+                    const idx = cellOf(v);
+                    if (cells[idx] >= 0 && tierOfCode(cells[idx]) > tier) continue;
+                    cells[idx] = v;
+                    if (draw) drawCell(idx);
+                }
+            });
+        }
+
+        function rebuildCells() {
+            cells.fill(-1);
+            const buckets = RARITIES.map(() => []);
+            for (let v = 0; v < TOTAL; v++) if (isOwned(v)) buckets[tierOfCode(v)].push(v);
+            placeColors(buckets, false);
+        }
+
+        // Sans argument, toute la carte est redessinée (chargement, réinitialisation).
+        function drawMaps(buckets) {
+            if (buckets) {
+                placeColors(buckets, true);
+                return;
+            }
+            paintBase(pointsCtx);
+            for (let i = 0; i < cells.length; i++) drawCell(i);
+        }
+
+        /* ---------- Sauvegarde (IndexedDB) ---------- */
+        // Une seule fiche : la table de bits (2 Mo, quel que soit le nombre de couleurs), les doubles,
+        // les compteurs et la carte. Les anciennes sauvegardes du localStorage sont converties au premier chargement.
+
+        const DB_NAME = "color-gacha", DB_STORE = "kv", SAVE_KEY = "save";
+        let db = null;
+
+        function openDb() {
+            return new Promise((resolve, reject) => {
+                if (!window.indexedDB) return reject(new Error("IndexedDB indisponible"));
+                const req = indexedDB.open(DB_NAME, 1);
+                req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        const dbGet = key => new Promise((resolve, reject) => {
+            const req = db.transaction(DB_STORE).objectStore(DB_STORE).get(key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+
+        const dbPut = (key, value) => new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, "readwrite");
+            tx.objectStore(DB_STORE).put(value, key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = tx.onabort = () => reject(tx.error);
+        });
+
+        const snapshot = () => ({
+            v: 3, pulls: state.pulls, last: state.last, owned, dups: [...dups],
+            tierCounts: tierCounts.slice(), sig: RARITY_SIG, px: PIXEL, cells,
+        });
+
+        // Les écritures sont regroupées : si un tirage arrive pendant une sauvegarde, une seule autre suit.
+        let saving = false, saveAgain = false;
+        async function flushSave() {
+            if (!db) return false;
+            if (saving) { saveAgain = true; return false; }
+            saving = true;
+            let ok = true;
+            try {
+                do {
+                    saveAgain = false;
+                    await dbPut(SAVE_KEY, snapshot());
+                } while (saveAgain);
+            } catch (err) {
+                ok = false;
+                toast("Sauvegarde impossible : stockage plein ou refusé");
+            }
+            saving = false;
+            return ok;
+        }
+        const saveState = () => { flushSave(); };
+
+        function applySave(data) {
+            owned.set(data.owned);
+            state.pulls = Number.isFinite(data.pulls) ? data.pulls : 0;
+            state.last = Number.isInteger(data.last) ? data.last : null;
+            dups.clear();
+            spare = 0;
+            for (const [v, extra] of data.dups || []) {
+                dups.set(v, extra);
+                spare += extra;
+            }
+            // Si les seuils de rareté ou la taille des carrés ont changé, on recalcule ce qui en dépend.
+            const sameRarities = data.sig === RARITY_SIG && Array.isArray(data.tierCounts) && data.tierCounts.length === RARITIES.length;
+            if (sameRarities) data.tierCounts.forEach((n, i) => (tierCounts[i] = n));
+            else recountTiers();
+            if (sameRarities && data.px === PIXEL && data.cells && data.cells.length === cells.length) cells.set(data.cells);
+            else rebuildCells();
+        }
+
+        // Anciennes sauvegardes (localStorage) : v2 = codes collés, v1 = objets JSON. Liste du plus récent au plus ancien.
+        const LEGACY_KEYS = ["color-gacha:v2", "color-gacha:v1"];
+        function loadLegacy() {
+            try {
+                const raw = localStorage.getItem("color-gacha:v2");
+                if (raw) {
+                    const data = JSON.parse(raw);
+                    if (data && typeof data.list === "string") {
+                        const dupsObj = data.dups || {};
+                        const colors = [];
+                        for (let i = 0; i + 6 <= data.list.length; i += 6) {
+                            const code = data.list.slice(i, i + 6);
+                            if (/^[0-9a-f]{6}$/.test(code)) {
+                                colors.push({ v: parseInt(code, 16), count: dupsObj[code] > 1 ? Math.floor(dupsObj[code]) : 1 });
+                            }
+                        }
+                        return {
+                            pulls: Number.isFinite(data.pulls) ? data.pulls : 0,
+                            last: /^[0-9a-f]{6}$/.test(data.last) ? parseInt(data.last, 16) : null,
+                            colors,
+                        };
+                    }
+                }
+                const old = localStorage.getItem("color-gacha:v1");
+                if (old) {
+                    const data = JSON.parse(old);
+                    if (data && Array.isArray(data.colors)) {
+                        return {
+                            pulls: Number.isFinite(data.pulls) ? data.pulls : 0,
+                            last: /^#[0-9a-f]{6}$/.test(data.last) ? codeOf(data.last) : null,
+                            colors: data.colors
+                                .filter(c => c && /^#[0-9a-f]{6}$/.test(c.hex))
+                                .map(c => ({ v: codeOf(c.hex), count: c.count > 1 ? Math.floor(c.count) : 1 })),
+                        };
+                    }
+                }
+            } catch (err) {
+                // Ancienne sauvegarde illisible : on l'ignore.
+            }
+            return null;
+        }
+
+        function importLegacy(legacy) {
+            state.pulls = legacy.pulls;
+            state.last = legacy.last;
+            const buckets = RARITIES.map(() => []);
+            for (let i = legacy.colors.length - 1; i >= 0; i--) { // du plus ancien au plus récent
+                const { v, count } = legacy.colors[i];
+                const tier = tierOfCode(v);
+                if (acquire(v, tier)) buckets[tier].push(v);
+                for (let k = 1; k < count; k++) acquire(v, tier);
+            }
+            placeColors(buckets, false);
         }
 
         /* ---------- Affichage ---------- */
 
-        function showColor(hex, note, keepReels) {
+        function showColor(v, note, keepReels) {
             els.stage.classList.remove("is-empty");
-            els.stage.style.background = hex;
-            els.stage.style.color = textColorFor(hex);
-            if (!keepReels) setReels(hex);
+            els.stage.style.background = hexOf(v);
+            els.stage.style.color = textColorFor(v);
+            if (!keepReels) setReels(v);
             if (note !== undefined) els.note.textContent = note;
         }
 
         function renderStats() {
-            els.pulls.textContent = state.pulls.toLocaleString("fr-FR");
-            els.unique.textContent = state.colors.length.toLocaleString("fr-FR");
+            els.pulls.textContent = fmt(state.pulls);
+            els.unique.textContent = fmt(uniqueCount());
         }
 
-        const RECENT_COUNT = 20; // nombre de couleurs affichées dans la collection principale
-
-        function makeChip(color) {
-            const item = document.createElement("li");
-            const chip = document.createElement("button");
-            chip.type = "button";
-            chip.className = "chip";
-            if (!color.count) chip.classList.add("is-missing");
-            chip.dataset.hex = color.hex;
-            const tierIndex = tierOf(color.hex);
-            chip.style.setProperty("--tier", RARITIES[tierIndex].color);
-            chip.setAttribute("aria-label", `Copier ${color.hex}, ${RARITIES[tierIndex].name}, ${color.count ? `obtenue ${color.count} fois` : "pas encore obtenue"}`);
-
-            const swatch = document.createElement("span");
-            swatch.className = "chip-swatch";
-            swatch.style.background = color.hex;
-
-            const label = document.createElement("span");
-            label.className = "chip-label";
-            label.textContent = color.hex;
-
-            const tier = document.createElement("span");
-            tier.className = "chip-tier";
-            tier.textContent = RARITIES[tierIndex].name;
-
-            chip.append(swatch, label, tier);
-
-            if (color.count > 1) {
-                const count = document.createElement("span");
-                count.className = "chip-count";
-                count.textContent = "×" + color.count;
-                chip.append(count);
-            }
-
-            item.append(chip);
-            return item;
+        function renderInventory() {
+            const unique = uniqueCount();
+            els.empty.hidden = unique > 0;
+            els.openAll.hidden = unique === 0;
+            els.openAll.textContent = `Voir toutes les couleurs (${fmt(unique)})`;
+            els.legend.replaceChildren();
+            RARITIES.forEach((r, i) => {
+                const li = document.createElement("li");
+                li.style.setProperty("--tier", r.color);
+                const rule = r.repeats ? `${r.repeats} identiques` : "2 identiques ou moins";
+                li.textContent = `${r.name} (${rule}) : ${fmt(tierCounts[i])}`;
+                els.legend.append(li);
+            });
         }
 
-        function renderCollection() {
-            els.grid.replaceChildren(...state.colors.slice(0, RECENT_COUNT).map(makeChip));
-            els.empty.hidden = state.colors.length > 0;
-            els.openAll.hidden = state.colors.length === 0;
-            els.openAll.textContent = `Voir toutes les couleurs (${state.colors.length.toLocaleString("fr-FR")})`;
-        }
-
-        function render(added) {
+        // buckets : couleurs nouvelles du dernier tirage, par rareté ; sans argument, tout est redessiné.
+        function render(buckets) {
             renderStats();
-            renderCollection();
-            renderLegend(added);
-            drawMaps(added);
+            renderInventory();
+            drawMaps(buckets);
             renderConvert();
         }
 
@@ -897,34 +910,19 @@
 
         /* ---------- Tirage ---------- */
 
-        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
         const pullButtons = document.querySelectorAll(".pull");
+        const setPullDisabled = flag => pullButtons.forEach(b => (b.disabled = flag));
         let busy = false;
-
-        // Ajoute une couleur à la collection. Renvoie la nouvelle entrée, ou null si la couleur était déjà
-        // obtenue (elle devient alors un double). pull() insère ensuite toutes les nouvelles entrées d'un coup.
-        function record(hex) {
-            const existing = index.get(hex);
-            if (existing) {
-                existing.count += 1;
-                spare += 1;
-                return null;
-            }
-            const entry = { hex, count: 1 };
-            index.set(hex, entry);
-            if (tierMap) tierMap[parseInt(hex.slice(1), 16)] |= OWNED;
-            return entry;
-        }
 
         const PATHS = 3 ** 6;                  // un symbole visible par colonne : 3 choix, 6 colonnes
         const HEADLINE_PATH = (PATHS - 1) / 2; // le chemin qui reste sur la ligne du milieu
 
         // Les trois symboles visibles (haut, milieu, bas) de chaque colonne quand la ligne du milieu affiche `headline`.
         function gridColumns(headline) {
-            return [...headline.slice(1)].map((ch, c) => {
-                const strip = STRIPS[c];
-                const k = strip.indexOf(ch);
-                return [strip[(k + 15) % 16], ch, strip[(k + 1) % 16]];
+            return STRIP_DIGITS.map((strip, c) => {
+                const d = digitOf(headline, c);
+                const k = strip.indexOf(d);
+                return [strip[(k + 15) % 16], d, strip[(k + 1) % 16]];
             });
         }
 
@@ -934,113 +932,101 @@
                 return;
             }
             busy = true;
-            pullButtons.forEach(b => (b.disabled = true));
+            setPullDisabled(true);
 
             // Chaque tirage place une couleur vedette (rareté tirée au sort) sur la ligne du milieu. Toutes les
-            // couleurs qu'on peut former avec les symboles visibles (un par colonne) rejoignent la collection.
-            const headlines = Array.from({ length: count }, drawHex);
-            const fresh = [];
+            // couleurs qu'on peut former avec les symboles visibles (un par colonne) rejoignent l'inventaire.
+            const headlines = Array.from({ length: count }, drawCode);
+            const buckets = RARITIES.map(() => []);
             let best = null;
+            let added = 0;
             headlines.forEach((headline, p) => {
                 const cols = gridColumns(headline);
                 for (let n = 0; n < PATHS; n++) {
-                    let hex = "#";
-                    for (let c = 0, m = n; c < 6; c++, m = Math.floor(m / 3)) hex += cols[c][m % 3];
-                    const tier = tierOf(hex);
-                    const entry = record(hex);
-                    if (entry) fresh.push({ entry, tier });
+                    let v = 0;
+                    for (let c = 0, m = n; c < 6; c++, m = Math.floor(m / 3)) v = (v << 4) | cols[c][m % 3];
+                    const tier = tierOfCode(v);
+                    const isNew = acquire(v, tier);
+                    if (isNew) {
+                        buckets[tier].push(v);
+                        added++;
+                    }
                     const better = !best || tier > best.tier ||
                         (tier === best.tier && n === HEADLINE_PATH && best.pull === p && best.n !== HEADLINE_PATH);
-                    if (better) {
-                        best = { hex, tier, n, pull: p, headline, isNew: best && best.hex === hex ? best.isNew : Boolean(entry) };
-                    }
+                    if (better) best = { v, tier, n, pull: p, headline, isNew: best && best.v === v ? best.isNew : isNew };
                 }
             });
-
             state.pulls += count;
-            state.last = best.hex;
-            fresh.sort((a, b) => a.tier - b.tier); // les plus rares en dernier : en tête de liste, et au-dessus sur la carte
-            const added = fresh.map(f => f.entry);
-            state.colors = added.slice().reverse().concat(state.colors);
+            state.last = best.v;
             saveState();
 
-            const fmt = n => n.toLocaleString("fr-FR");
             const rarity = RARITIES[best.tier].name;
-            const status = best.isNew ? "nouvelle couleur" : `déjà obtenue, ×${index.get(best.hex).count}`;
-            const summary = `${fmt(added.length)} ${added.length > 1 ? "nouvelles couleurs" : "nouvelle couleur"} sur ${fmt(count * PATHS)} combinaisons.`;
+            const status = best.isNew ? "nouvelle couleur" : `déjà obtenue, ×${1 + (dups.get(best.v) || 0)}`;
+            const summary = `${fmt(added)} ${added > 1 ? "nouvelles couleurs" : "nouvelle couleur"} sur ${fmt(count * PATHS)} combinaisons.`;
             const note = `${count === 1 ? "" : `Meilleur des ${count} : `}${rarity}, ${status}. ${summary}`;
 
             // Machine à sous pour un tirage simple ; les tirages ×10 et ×100 affichent directement la meilleure grille.
             if (count === 1 && !reduceMotion) await spinReels(best.headline);
             else setReels(best.headline);
             showHits(best.n, RARITIES[best.tier].color);
-            showColor(best.hex, note, true);
+            showColor(best.v, note, true);
             if (!reduceMotion) {
                 els.stage.animate(
                     [{ transform: "scale(1.03)" }, { transform: "scale(1)" }],
                     { duration: 300, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }
                 );
             }
-            els.announce.textContent = `${best.hex}. ${note}`;
-            render(added);
+            els.announce.textContent = `${hexOf(best.v)}. ${note}`;
+            render(buckets);
 
-            pullButtons.forEach(b => (b.disabled = false));
+            setPullDisabled(false);
             busy = false;
         }
 
-        /* ---------- Liste complète ---------- */
+        /* ---------- Inventaire ---------- */
+        // L'inventaire ne garde aucune liste en mémoire : il parcourt une table de 16 777 216 cases (la rareté de
+        // chaque couleur possible, calculée à la première ouverture) et la confronte à la table de bits des couleurs obtenues.
 
         const PAGE_SIZE = 1000;
-        const view = { tiers: new Set(RARITIES.keys()), sort: "recent", page: 0, missing: false };
-
-        // Couleurs manquantes : une table de 16 777 216 cases (une par couleur possible) donne sa rareté,
-        // plus le bit OWNED si elle est dans la collection. Elle est calculée à la première utilisation.
-        const OWNED = 0x80;
+        const view = { tiers: new Set(RARITIES.keys()), sort: "rarest", page: 0, missing: false };
         let tierMap = null;
         let tierTotals = null; // nombre de couleurs possibles par rareté
-        const TIER_BY_MAX = Array.from({ length: 7 }, (_, m) => RARITIES.reduce((t, r, i) => (m >= r.repeats ? i : t), 0));
 
         function buildTierMap() {
-            tierMap = new Uint8Array(1 << 24);
+            tierMap = new Uint8Array(TOTAL);
             tierTotals = RARITIES.map(() => 0);
-            const seen = new Uint8Array(16);
-            for (let v = 0; v < 1 << 24; v++) {
-                seen.fill(0);
-                let max = 0;
-                for (let shift = 0; shift < 24; shift += 4) {
-                    const n = ++seen[(v >> shift) & 15];
-                    if (n > max) max = n;
-                }
-                const t = TIER_BY_MAX[max];
+            for (let v = 0; v < TOTAL; v++) {
+                const t = tierOfCode(v);
                 tierMap[v] = t;
                 tierTotals[t]++;
             }
-            for (const c of state.colors) tierMap[parseInt(c.hex.slice(1), 16)] |= OWNED;
         }
+
+        const countFor = t => (view.missing ? tierTotals[t] - tierCounts[t] : tierCounts[t]);
 
         // Un segment = un ensemble de raretés parcouru dans un sens. Avec un tri par rareté, il y a un segment
         // par rareté ; sinon un seul, qui les regroupe toutes.
-        function missingSegments(sel) {
+        function segments(sel) {
             const tiers = sel.map((on, t) => (on ? t : -1)).filter(t => t >= 0);
             const segment = (list, desc) => {
                 const want = new Uint8Array(RARITIES.length);
                 list.forEach(t => (want[t] = 1));
-                return { want, desc, count: list.reduce((n, t) => n + tierTotals[t] - tierCounts[t], 0) };
+                return { want, desc, count: list.reduce((n, t) => n + countFor(t), 0) };
             };
             if (view.sort === "rarest") return tiers.reverse().map(t => segment([t], false));
             if (view.sort === "common") return tiers.map(t => segment([t], false));
             return [segment(tiers, view.sort === "desc")];
         }
 
-        // Renvoie les codes (entiers) des couleurs manquantes : `skip` résultats ignorés, puis `take` pris.
-        function scanMissing(segments, skip, take) {
+        // Renvoie les codes des couleurs obtenues (ou manquantes) : `skip` résultats ignorés, puis `take` pris.
+        function scan(segs, skip, take) {
+            const wantOwned = view.missing ? 0 : 1;
             const out = [];
-            for (const seg of segments) {
+            for (const seg of segs) {
                 if (skip >= seg.count) { skip -= seg.count; continue; }
                 const step = seg.desc ? -1 : 1;
-                for (let v = seg.desc ? 0xffffff : 0; v >= 0 && v <= 0xffffff; v += step) {
-                    const t = tierMap[v];
-                    if (t & OWNED || !seg.want[t]) continue;
+                for (let v = seg.desc ? TOTAL - 1 : 0; v >= 0 && v < TOTAL; v += step) {
+                    if (!seg.want[tierMap[v]] || ((owned[v >> 3] >> (v & 7)) & 1) !== wantOwned) continue;
                     if (skip > 0) { skip--; continue; }
                     out.push(v);
                     if (out.length === take) return out;
@@ -1049,37 +1035,57 @@
             return out;
         }
 
-        function renderAll() {
-            if (view.missing && !tierMap) buildTierMap();
-            const fmt = n => n.toLocaleString("fr-FR");
-            const sel = RARITIES.map((_, i) => view.tiers.has(i));
-            let total, getPage;
+        function makeChip({ v, count }) {
+            const hex = hexOf(v);
+            const tierIndex = tierOfCode(v);
+            const item = document.createElement("li");
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "chip";
+            if (!count) chip.classList.add("is-missing");
+            chip.dataset.hex = hex;
+            chip.style.setProperty("--tier", RARITIES[tierIndex].color);
+            chip.setAttribute("aria-label",
+                `Copier ${hex}, ${RARITIES[tierIndex].name}, ${count ? `obtenue ${count} fois` : "pas encore obtenue"}`);
 
-            if (view.missing) {
-                total = sel.reduce((n, on, t) => n + (on ? tierTotals[t] - tierCounts[t] : 0), 0);
-                getPage = start => scanMissing(missingSegments(sel), start, PAGE_SIZE)
-                    .map(v => ({ hex: "#" + v.toString(16).padStart(6, "0"), count: 0 }));
-            } else {
-                const rows = [];
-                for (const c of state.colors) {
-                    const t = tierOf(c.hex);
-                    if (sel[t]) rows.push({ c, t });
-                }
-                const byCode = (a, b) => (a.c.hex < b.c.hex ? -1 : 1); // les codes sont uniques
-                if (view.sort === "asc") rows.sort(byCode);
-                else if (view.sort === "desc") rows.sort((a, b) => -byCode(a, b));
-                else if (view.sort === "rarest") rows.sort((a, b) => b.t - a.t || byCode(a, b));
-                else if (view.sort === "common") rows.sort((a, b) => a.t - b.t || byCode(a, b));
-                total = rows.length;
-                getPage = start => rows.slice(start, start + PAGE_SIZE).map(r => r.c);
+            const swatch = document.createElement("span");
+            swatch.className = "chip-swatch";
+            swatch.style.background = hex;
+
+            const label = document.createElement("span");
+            label.className = "chip-label";
+            label.textContent = hex;
+
+            const tier = document.createElement("span");
+            tier.className = "chip-tier";
+            tier.textContent = RARITIES[tierIndex].name;
+
+            chip.append(swatch, label, tier);
+
+            if (count > 1) {
+                const badge = document.createElement("span");
+                badge.className = "chip-count";
+                badge.textContent = "×" + count;
+                chip.append(badge);
             }
 
+            item.append(chip);
+            return item;
+        }
+
+        function renderAll() {
+            if (!tierMap) buildTierMap();
+            const sel = RARITIES.map((_, i) => view.tiers.has(i));
+            const total = sel.reduce((n, on, t) => n + (on ? countFor(t) : 0), 0);
             const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
             view.page = Math.min(view.page, pages - 1);
-            els.allGrid.replaceChildren(...getPage(view.page * PAGE_SIZE).map(makeChip));
+
+            const items = scan(segments(sel), view.page * PAGE_SIZE, PAGE_SIZE)
+                .map(v => ({ v, count: view.missing ? 0 : 1 + (dups.get(v) || 0) }));
+            els.allGrid.replaceChildren(...items.map(makeChip));
             els.allSummary.textContent = view.missing
                 ? `${fmt(total)} couleurs manquantes`
-                : `${fmt(total)} sur ${fmt(state.colors.length)} couleurs`;
+                : `${fmt(total)} sur ${fmt(uniqueCount())} couleurs`;
             els.pager.hidden = pages <= 1;
             els.pageInput.value = view.page + 1;
             els.pageInput.max = pages;
@@ -1118,37 +1124,33 @@
         });
         els.prev.addEventListener("click", () => goToPage(-1));
         els.next.addEventListener("click", () => goToPage(1));
-        els.openAll.addEventListener("click", () => {
-            renderAll();
-            els.allDialog.showModal();
-        });
-        els.allClose.addEventListener("click", () => els.allDialog.close());
-
         els.pageInput.addEventListener("change", () => {
             view.page = Math.max(0, (parseInt(els.pageInput.value, 10) || 1) - 1);
             renderAll();
             els.allDialog.scrollTop = 0;
         });
-
         els.allMissing.addEventListener("change", () => {
             view.missing = els.allMissing.checked;
-            view.sort = view.missing ? "rarest" : "recent";
-            els.allSort.value = view.sort;
-            els.allSort.options[0].disabled = view.missing; // « plus récentes » n'a pas de sens pour des couleurs jamais obtenues
             view.page = 0;
-            if (view.missing && !tierMap) {
-                els.allSummary.textContent = "Calcul des couleurs en cours…";
-                setTimeout(renderAll, 30);
-            } else {
-                renderAll();
-            }
+            renderAll();
         });
+        els.openAll.addEventListener("click", () => {
+            els.allDialog.showModal();
+            if (tierMap) {
+                renderAll();
+                return;
+            }
+            els.allSummary.textContent = "Calcul des couleurs en cours…";
+            els.allGrid.replaceChildren();
+            setTimeout(renderAll, 30);
+        });
+        els.allClose.addEventListener("click", () => els.allDialog.close());
 
         /* ---------- Machine à sous ---------- */
 
-        const DIGITS = "0123456789abcdef";
         // Ordre des symboles sur chaque colonne : les trois symboles visibles sont consécutifs sur la bande.
         const STRIPS = ["3f8a1d6b04e9c527", "b2e7059d4a1f86c3", "7c1a9e30f5d2b846", "e50b4c8f27a1d936", "5a0d3b9f6e2c8174", "d9406a2e8b3f7c15"];
+        const STRIP_DIGITS = STRIPS.map(s => [...s].map(ch => parseInt(ch, 16)));
         const CELLS = 19;            // 16 symboles + 3 répétés pour que le défilement boucle sans coupure
         const SPIN_SPEED = 36;       // symboles qui défilent par seconde
         const AUTO_FIRST_STOP = 500; // arrêt automatique : première colonne (ms)
@@ -1200,8 +1202,8 @@
             r.strip.style.transform = `translateY(${(-offset * 100) / CELLS}%)`;
         }
 
-        // Position de la bande qui place le symbole `ch` sur la ligne du milieu de la colonne i.
-        const positionFor = (i, ch) => (STRIPS[i].indexOf(ch) + 15) % 16;
+        // Position de la bande qui place le chiffre `digit` sur la ligne du milieu de la colonne c.
+        const positionFor = (c, digit) => (STRIP_DIGITS[c].indexOf(digit) + 15) % 16;
 
         function hideHits() {
             reels.forEach(r => (r.hit.hidden = true));
@@ -1216,14 +1218,15 @@
             });
         }
 
-        function setReels(hex) {
-            [...hex.slice(1)].forEach((ch, i) => {
-                reels[i].pos = positionFor(i, ch);
-                reels[i].el.classList.remove("is-empty");
-                renderReel(reels[i]);
+        // Place la couleur v sur la ligne du milieu.
+        function setReels(v) {
+            reels.forEach((r, c) => {
+                r.pos = positionFor(c, digitOf(v, c));
+                r.el.classList.remove("is-empty");
+                renderReel(r);
             });
             hideHits();
-            els.slot.setAttribute("aria-label", `Couleur ${hex} sur la ligne du milieu`);
+            els.slot.setAttribute("aria-label", `Couleur ${hexOf(v)} sur la ligne du milieu`);
         }
 
         function clearReels() {
@@ -1232,10 +1235,10 @@
             els.slot.setAttribute("aria-label", "Aucune couleur tirée");
         }
 
-        // Fait défiler les colonnes puis les arrête sur les symboles de `hex` (ligne du milieu). Le résultat est
+        // Fait défiler les colonnes puis les arrête sur les chiffres de v (ligne du milieu). Le résultat est
         // décidé avant le lancement : l'arrêt manuel ne change que le rythme de la révélation.
-        function spinReels(hex) {
-            const targets = [...hex.slice(1)].map((ch, i) => positionFor(i, ch));
+        function spinReels(v) {
+            const targets = reels.map((_, c) => positionFor(c, digitOf(v, c)));
             const isManual = manual;
 
             return new Promise(resolve => {
@@ -1321,9 +1324,9 @@
         function renderConvert() {
             const units = Math.floor(spare / CONVERT_COST);
             els.convertInfo.textContent =
-                `${spare.toLocaleString("fr-FR")} doubles en réserve. ${CONVERT_COST} doubles donnent 1 couleur jamais obtenue.`;
+                `${fmt(spare)} doubles en réserve. ${CONVERT_COST} doubles donnent 1 couleur jamais obtenue.`;
             els.convertOne.textContent = `Convertir ${CONVERT_COST} doubles`;
-            els.convertAll.textContent = units > 1 ? `Tout convertir (${units.toLocaleString("fr-FR")} couleurs)` : "Tout convertir";
+            els.convertAll.textContent = units > 1 ? `Tout convertir (${fmt(units)} couleurs)` : "Tout convertir";
             els.convertOne.disabled = units < 1;
             els.convertAll.disabled = units < 1;
         }
@@ -1332,52 +1335,52 @@
         function convert(maxUnits) {
             if (busy) return;
             const units = Math.min(maxUnits, Math.floor(spare / CONVERT_COST));
-            const added = [];
+            const buckets = RARITIES.map(() => []);
+            let got = 0;
+            let best = null;
             for (let i = 0; i < units; i++) {
-                let hex = null;
-                for (let tries = 0; tries < 1000 && !hex; tries++) {
-                    const candidate = drawHex();
-                    if (!index.has(candidate)) hex = candidate;
+                let v = null;
+                for (let tries = 0; tries < 1000 && v === null; tries++) {
+                    const candidate = drawCode();
+                    if (!isOwned(candidate)) v = candidate;
                 }
-                if (!hex) break;
-                const entry = { hex, count: 1 };
-                index.set(hex, entry);
-                if (tierMap) tierMap[parseInt(hex.slice(1), 16)] |= OWNED;
-                added.push(entry);
+                if (v === null) break;
+                const tier = tierOfCode(v);
+                acquire(v, tier);
+                buckets[tier].push(v);
+                got++;
+                if (!best || tier > best.tier) best = { v, tier };
             }
-            if (!added.length) {
+            if (!got) {
                 toast("Aucune couleur disponible pour la conversion");
                 return;
             }
 
             // On retire les doubles utilisés : chaque couleur garde toujours au moins un exemplaire.
-            let need = added.length * CONVERT_COST;
+            let need = got * CONVERT_COST;
             spare -= need;
-            for (const c of state.colors) {
+            for (const [v, extra] of dups) {
                 if (need === 0) break;
-                if (c.count > 1) {
-                    const take = Math.min(c.count - 1, need);
-                    c.count -= take;
-                    need -= take;
-                }
+                const take = Math.min(extra, need);
+                if (take === extra) dups.delete(v);
+                else dups.set(v, extra - take);
+                need -= take;
             }
-            state.colors = added.slice().reverse().concat(state.colors);
             saveState();
 
-            const best = added.reduce((a, b) => (tierOf(b.hex) > tierOf(a.hex) ? b : a));
-            const rarity = RARITIES[tierOf(best.hex)].name;
-            const note = added.length === 1
+            const rarity = RARITIES[best.tier].name;
+            const note = got === 1
                 ? `Convertie : ${rarity}, nouvelle couleur`
-                : `${added.length} couleurs converties, la meilleure : ${rarity}`;
-            showColor(best.hex, note);
+                : `${fmt(got)} couleurs converties, la meilleure : ${rarity}`;
+            showColor(best.v, note);
             if (!reduceMotion) {
                 els.stage.animate(
                     [{ transform: "scale(1.03)" }, { transform: "scale(1)" }],
                     { duration: 300, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }
                 );
             }
-            els.announce.textContent = `${best.hex}. ${note}.`;
-            render(added);
+            els.announce.textContent = `${hexOf(best.v)}. ${note}.`;
+            render(buckets);
         }
 
         els.convertOne.addEventListener("click", () => convert(1));
@@ -1387,6 +1390,7 @@
 
         pullButtons.forEach(btn => btn.addEventListener("click", () => pull(Number(btn.dataset.count) || 1)));
 
+        // Un clic sur n'importe quelle pastille copie son code.
         document.addEventListener("click", async event => {
             const chip = event.target.closest(".chip");
             if (!chip) return;
@@ -1399,25 +1403,60 @@
         });
 
         els.reset.addEventListener("click", () => {
-            if (!confirm("Effacer tous les tirages et la collection ?")) return;
-            state = freshState();
-            index = new Map();
-            tierMap = null;
-            tierTotals = null;
+            if (!confirm("Effacer tous les tirages et l'inventaire ?")) return;
+            state.pulls = 0;
+            state.last = null;
+            owned.fill(0);
+            dups.clear();
             spare = 0;
-            saveState();
+            tierCounts.fill(0);
+            cells.fill(-1);
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
             els.stage.style.color = "";
             clearReels();
             els.note.textContent = "Ta première couleur t’attend.";
             render();
+            saveState();
         });
 
         /* ---------- Démarrage ---------- */
 
-        if (state.last) showColor(state.last, "Dernier tirage");
-        render();
+        async function init() {
+            setPullDisabled(true);
+            try { db = await openDb(); } catch (err) { db = null; }
+            if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
+            let loaded = false;
+            if (db) {
+                try {
+                    const data = await dbGet(SAVE_KEY);
+                    if (data && data.v === 3 && data.owned) {
+                        applySave(data);
+                        loaded = true;
+                    }
+                } catch (err) {
+                    // Sauvegarde illisible : on retombe sur l'ancienne ou on repart de zéro.
+                }
+            }
+            if (!loaded) {
+                const legacy = loadLegacy();
+                if (legacy) {
+                    importLegacy(legacy);
+                    if (await flushSave()) {
+                        LEGACY_KEYS.forEach(key => { try { localStorage.removeItem(key); } catch (err) { /* ignoré */ } });
+                    }
+                }
+            }
+            if (!db) toast("Sauvegarde indisponible dans ce navigateur");
+
+            if (state.last !== null) showColor(state.last, "Dernier tirage");
+            render();
+            setPullDisabled(false);
+        }
+
+        init();
+
     </script>
 </body>
 </html>
