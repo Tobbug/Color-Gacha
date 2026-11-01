@@ -542,6 +542,7 @@
     </main>
 
     <script>
+
         "use strict";
 
         const TOTAL = 1 << 24; // nombre de couleurs possibles : 16 777 216
@@ -593,12 +594,12 @@
 
         const seen = new Uint8Array(16);
         function tierOfCode(v) {
-            seen.fill(0);
             let max = 0;
             for (let s = 0; s < 24; s += 4) {
                 const n = ++seen[(v >> s) & 15];
                 if (n > max) max = n;
             }
+            for (let s = 0; s < 24; s += 4) seen[(v >> s) & 15] = 0; // remise à zéro des seules cases utilisées
             return TIER_BY_MAX[max];
         }
 
@@ -617,7 +618,12 @@
                 return v;
             }
             const digit = rnd(16);
-            const slots = [0, 1, 2, 3, 4, 5].sort(() => Math.random() - 0.5).slice(0, repeats);
+            const slots = [0, 1, 2, 3, 4, 5];
+            for (let i = slots.length - 1; i > 0; i--) { // mélange de Fisher-Yates
+                const j = rnd(i + 1);
+                [slots[i], slots[j]] = [slots[j], slots[i]];
+            }
+            slots.length = repeats;
             let v = 0;
             for (let c = 0; c < 6; c++) v = (v << 4) | (slots.includes(c) ? digit : (digit + 1 + rnd(15)) % 16);
             return v;
@@ -647,8 +653,9 @@
         }
 
         function recountTiers() {
+            if (!tierMap) buildTierMap();
             tierCounts.fill(0);
-            for (let v = 0; v < TOTAL; v++) if (isOwned(v)) tierCounts[tierOfCode(v)]++;
+            for (let v = 0; v < TOTAL; v++) if (isOwned(v)) tierCounts[tierMap[v]]++;
         }
 
         /* ---------- Carte des couleurs ---------- */
@@ -657,22 +664,31 @@
         const CELL_COLS = Math.ceil(MAP_W / PIXEL);
         const CELL_ROWS = Math.ceil(MAP_H / PIXEL);
         const cells = new Int32Array(CELL_COLS * CELL_ROWS).fill(-1); // couleur affichée dans chaque case (-1 = vide)
+        const cellTier = new Int8Array(cells.length).fill(-1);          // rareté de cette couleur
         const pointsCtx = els.points.getContext("2d");
 
         // Case de la carte : teinte en largeur, luminosité en hauteur (blanc en haut, noir en bas).
         function cellOf(v) {
-            const r = ((v >> 16) & 255) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
-            const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-            let h = 0;
+            const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+            let max = r > g ? r : g;
+            if (b > max) max = b;
+            let min = r < g ? r : g;
+            if (b < min) min = b;
+            const d = max - min;
+            let h = 0; // teinte, de 0 à 6 (6 = tour complet)
             if (d) {
-                if (max === r) h = ((g - b) / d + 6) % 6;
-                else if (max === g) h = (b - r) / d + 2;
-                else h = (r - g) / d + 4;
-                h *= 60;
+                if (max === r) {
+                    h = (g - b) / d;
+                    if (h < 0) h += 6;
+                } else if (max === g) {
+                    h = (b - r) / d + 2;
+                } else {
+                    h = (r - g) / d + 4;
+                }
             }
-            const x = Math.min((h / 360) * MAP_W, MAP_W - 1);
-            const y = Math.min((1 - (max + min) / 2) * MAP_H, MAP_H - 1);
-            return Math.floor(y / PIXEL) * CELL_COLS + Math.floor(x / PIXEL);
+            const x = Math.min(h * (MAP_W / 6), MAP_W - 1);
+            const y = Math.min((1 - (max + min) / 510) * MAP_H, MAP_H - 1);
+            return (((y / PIXEL) | 0) * CELL_COLS) + ((x / PIXEL) | 0);
         }
 
         function paintBase(ctx) {
@@ -701,23 +717,35 @@
         }
 
         // buckets[tier] = codes à placer. Une case montre la couleur la plus rare qu'elle contient
-        // (à rareté égale, la plus récente). Seules les cases modifiées sont redessinées.
+        // (à rareté égale, la plus récente). Chaque case modifiée n'est redessinée qu'une fois.
         function placeColors(buckets, draw) {
+            const changed = new Set();
             buckets.forEach((bucket, tier) => {
                 for (const v of bucket) {
                     const idx = cellOf(v);
-                    if (cells[idx] >= 0 && tierOfCode(cells[idx]) > tier) continue;
+                    if (cellTier[idx] > tier) continue;
                     cells[idx] = v;
-                    if (draw) drawCell(idx);
+                    cellTier[idx] = tier;
+                    if (draw) changed.add(idx);
                 }
             });
+            changed.forEach(idx => drawCell(idx));
         }
 
+        // Reconstruit la carte depuis la table de bits, sans construire de liste intermédiaire.
         function rebuildCells() {
+            if (!tierMap) buildTierMap();
             cells.fill(-1);
-            const buckets = RARITIES.map(() => []);
-            for (let v = 0; v < TOTAL; v++) if (isOwned(v)) buckets[tierOfCode(v)].push(v);
-            placeColors(buckets, false);
+            cellTier.fill(-1);
+            for (let v = 0; v < TOTAL; v++) {
+                if (!isOwned(v)) continue;
+                const tier = tierMap[v];
+                const idx = cellOf(v);
+                if (cellTier[idx] <= tier) {
+                    cells[idx] = v;
+                    cellTier[idx] = tier;
+                }
+            }
         }
 
         // Sans argument, toute la carte est redessinée (chargement, réinitialisation).
@@ -760,15 +788,40 @@
             tx.onerror = tx.onabort = () => reject(tx.error);
         });
 
-        const snapshot = () => ({
-            v: 3, pulls: state.pulls, last: state.last, owned, dups: [...dups],
-            tierCounts: tierCounts.slice(), sig: RARITY_SIG, px: PIXEL, cells,
-        });
+        // Les doubles sont envoyés en tableaux typés : bien plus rapide à copier qu'une liste de paires.
+        function snapshot() {
+            const dupCodes = new Uint32Array(dups.size);
+            const dupExtras = new Uint32Array(dups.size);
+            let i = 0;
+            for (const [v, extra] of dups) {
+                dupCodes[i] = v;
+                dupExtras[i++] = extra;
+            }
+            return {
+                v: 3, pulls: state.pulls, last: state.last, owned, dupCodes, dupExtras,
+                tierCounts: tierCounts.slice(), sig: RARITY_SIG, px: PIXEL, cells,
+            };
+        }
 
-        // Les écritures sont regroupées : si un tirage arrive pendant une sauvegarde, une seule autre suit.
-        let saving = false, saveAgain = false;
+        // Deux onglets ne doivent pas écrire la même sauvegarde : le plus ancien se verrouille dès qu'un autre enregistre.
+        let locked = false;
+        const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel("color-gacha") : null;
+        if (channel) channel.onmessage = () => lockTab();
+
+        function lockTab() {
+            if (locked) return;
+            locked = true;
+            setPullDisabled(true);
+            els.convertOne.disabled = true;
+            els.convertAll.disabled = true;
+            els.note.textContent = "Le jeu a été modifié dans un autre onglet. Recharge cette page pour continuer.";
+        }
+
+        const SAVE_DELAY = 1000; // ms : les tirages rapprochés sont regroupés en une seule écriture
+        let saving = false, saveAgain = false, saveTimer = null;
+
         async function flushSave() {
-            if (!db) return false;
+            if (!db || locked) return false;
             if (saving) { saveAgain = true; return false; }
             saving = true;
             let ok = true;
@@ -776,6 +829,7 @@
                 do {
                     saveAgain = false;
                     await dbPut(SAVE_KEY, snapshot());
+                    if (channel) channel.postMessage("saved");
                 } while (saveAgain);
             } catch (err) {
                 ok = false;
@@ -784,7 +838,22 @@
             saving = false;
             return ok;
         }
-        const saveState = () => { flushSave(); };
+
+        function saveState() {
+            if (saveTimer !== null) return;
+            saveTimer = setTimeout(() => {
+                saveTimer = null;
+                flushSave();
+            }, SAVE_DELAY);
+        }
+
+        // Écrit tout de suite si une sauvegarde est en attente (onglet masqué ou fermé, réinitialisation).
+        function flushNow() {
+            if (saveTimer === null) return;
+            clearTimeout(saveTimer);
+            saveTimer = null;
+            flushSave();
+        }
 
         function applySave(data) {
             owned.set(data.owned);
@@ -792,16 +861,28 @@
             state.last = Number.isInteger(data.last) ? data.last : null;
             dups.clear();
             spare = 0;
-            for (const [v, extra] of data.dups || []) {
-                dups.set(v, extra);
-                spare += extra;
+            if (data.dupCodes) {
+                data.dupCodes.forEach((v, i) => {
+                    dups.set(v, data.dupExtras[i]);
+                    spare += data.dupExtras[i];
+                });
+            } else {
+                for (const [v, extra] of data.dups || []) { // ancien format de la fiche
+                    dups.set(v, extra);
+                    spare += extra;
+                }
             }
             // Si les seuils de rareté ou la taille des carrés ont changé, on recalcule ce qui en dépend.
             const sameRarities = data.sig === RARITY_SIG && Array.isArray(data.tierCounts) && data.tierCounts.length === RARITIES.length;
             if (sameRarities) data.tierCounts.forEach((n, i) => (tierCounts[i] = n));
             else recountTiers();
-            if (sameRarities && data.px === PIXEL && data.cells && data.cells.length === cells.length) cells.set(data.cells);
-            else rebuildCells();
+            if (sameRarities && data.px === PIXEL && data.cells && data.cells.length === cells.length) {
+                cells.set(data.cells);
+                cellTier.fill(-1);
+                cells.forEach((v, i) => { if (v >= 0) cellTier[i] = tierOfCode(v); });
+            } else {
+                rebuildCells();
+            }
         }
 
         // Anciennes sauvegardes (localStorage) : v2 = codes collés, v1 = objets JSON. Liste du plus récent au plus ancien.
@@ -957,9 +1038,22 @@
                 if (stopAll) stopAll(); // pendant un tirage manuel, le bouton principal arrête les colonnes restantes
                 return;
             }
+            if (locked) return;
             busy = true;
             setPullDisabled(true);
+            try {
+                await runPull(count);
+            } finally { // quoi qu'il arrive, le jeu ne reste jamais bloqué
+                stopReel = null;
+                stopAll = null;
+                els.stops.hidden = true;
+                els.pull.textContent = "Tirer une couleur";
+                setPullDisabled(locked);
+                busy = false;
+            }
+        }
 
+        async function runPull(count) {
             // Chaque tirage place une couleur vedette (rareté tirée au sort) sur la ligne du milieu. Toutes les
             // couleurs qu'on peut former avec les symboles visibles (un par colonne) rejoignent l'inventaire.
             const headlines = Array.from({ length: count }, drawCode);
@@ -1005,9 +1099,6 @@
             els.announce.textContent = `${hexOf(best.v)}. ${note}`;
             pushRecent(buckets);
             render(buckets);
-
-            setPullDisabled(false);
-            busy = false;
         }
 
         /* ---------- Inventaire ---------- */
@@ -1019,10 +1110,37 @@
         let tierMap = null;
         let tierTotals = null; // nombre de couleurs possibles par rareté
 
+        // Seules les couleurs non communes sont à repérer : elles ont un chiffre répété au moins `m` fois
+        // (m = plus petit seuil au-dessus de « commun »). On les génère directement (environ 1,3 million de codes
+        // pour m = 3) au lieu de parcourir les 16,7 millions de couleurs.
         function buildTierMap() {
-            tierMap = new Uint8Array(TOTAL);
+            tierMap = new Uint8Array(TOTAL); // 0 = commun
             tierTotals = RARITIES.map(() => 0);
-            for (let v = 0; v < TOTAL; v++) {
+            const m = Math.min(...RARITIES.slice(1).map(r => r.repeats));
+            if (RARITIES.length > 1 && m >= 2) {
+                for (let d = 0; d < 16; d++) {
+                    for (let mask = 0; mask < 64; mask++) {
+                        let bits = 0;
+                        for (let c = 0; c < 6; c++) bits += (mask >> c) & 1;
+                        if (bits !== m) continue;
+                        for (let f = 0, n = 16 ** (6 - m); f < n; f++) {
+                            let v = 0, rest = f;
+                            for (let c = 0; c < 6; c++) {
+                                let digit = d;
+                                if (!((mask >> c) & 1)) { digit = rest & 15; rest >>= 4; }
+                                v |= digit << (4 * c);
+                            }
+                            if (tierMap[v] === 0) {
+                                const t = tierOfCode(v);
+                                if (t > 0) { tierMap[v] = t; tierTotals[t]++; }
+                            }
+                        }
+                    }
+                }
+                tierTotals[0] = TOTAL - tierTotals.reduce((a, b) => a + b, 0);
+                return;
+            }
+            for (let v = 0; v < TOTAL; v++) { // seuils inhabituels : parcours complet
                 const t = tierOfCode(v);
                 tierMap[v] = t;
                 tierTotals[t]++;
@@ -1354,13 +1472,13 @@
                 `${fmt(spare)} doubles en réserve. ${CONVERT_COST} doubles donnent 1 couleur jamais obtenue.`;
             els.convertOne.textContent = `Convertir ${CONVERT_COST} doubles`;
             els.convertAll.textContent = units > 1 ? `Tout convertir (${fmt(units)} couleurs)` : "Tout convertir";
-            els.convertOne.disabled = units < 1;
-            els.convertAll.disabled = units < 1;
+            els.convertOne.disabled = units < 1 || locked;
+            els.convertAll.disabled = units < 1 || locked;
         }
 
         // Convertit jusqu'à maxUnits lots de doubles en couleurs jamais obtenues (même chances de rareté qu'un tirage).
         function convert(maxUnits) {
-            if (busy) return;
+            if (busy || locked) return;
             const units = Math.min(maxUnits, Math.floor(spare / CONVERT_COST));
             const buckets = RARITIES.map(() => []);
             let got = 0;
@@ -1418,6 +1536,12 @@
 
         pullButtons.forEach(btn => btn.addEventListener("click", () => pull(Number(btn.dataset.count) || 1)));
 
+        // Une sauvegarde en attente est écrite dès que la page est masquée ou quittée.
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "hidden") flushNow();
+        });
+        window.addEventListener("pagehide", flushNow);
+
         // Un clic sur n'importe quelle pastille copie son code.
         document.addEventListener("click", async event => {
             const chip = event.target.closest(".chip");
@@ -1431,7 +1555,7 @@
         });
 
         els.reset.addEventListener("click", () => {
-            if (!confirm("Effacer tous les tirages et l'inventaire ?")) return;
+            if (busy || locked || !confirm("Effacer tous les tirages et l'inventaire ?")) return;
             state.pulls = 0;
             state.last = null;
             owned.fill(0);
@@ -1439,6 +1563,7 @@
             spare = 0;
             tierCounts.fill(0);
             cells.fill(-1);
+            cellTier.fill(-1);
             recent = [];
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
@@ -1447,6 +1572,7 @@
             els.note.textContent = "Ta première couleur t’attend.";
             render();
             saveState();
+            flushNow();
         });
 
         /* ---------- Démarrage ---------- */
@@ -1454,7 +1580,6 @@
         async function init() {
             setPullDisabled(true);
             try { db = await openDb(); } catch (err) { db = null; }
-            if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
             let loaded = false;
             if (db) {
@@ -1485,6 +1610,7 @@
         }
 
         init();
+
 
     </script>
 </body>
