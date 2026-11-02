@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
     <title>Color Gacha</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,11 +12,43 @@
         :root {
             --bg: #e8ebee;
             --surface: #f6f7f8;
+            --hover: #ffffff;
             --ink: #1b1f24;
+            --on-ink: #ffffff;
             --muted: #5b646e;
             --line: #cdd3d9;
             --focus: #2f5bea;
+            --map-empty: #d5dae0;
             --font: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+            color-scheme: light;
+        }
+
+        :root[data-theme="dark"] {
+            --bg: #14181d;
+            --surface: #1d2329;
+            --hover: #29313a;
+            --ink: #eef1f4;
+            --on-ink: #14181d;
+            --muted: #9aa4af;
+            --line: #323a43;
+            --focus: #7aa2ff;
+            --map-empty: #262d35;
+            color-scheme: dark;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme]) {
+                --bg: #14181d;
+                --surface: #1d2329;
+                --hover: #29313a;
+                --ink: #eef1f4;
+                --on-ink: #14181d;
+                --muted: #9aa4af;
+                --line: #323a43;
+                --focus: #7aa2ff;
+                --map-empty: #262d35;
+                color-scheme: dark;
+            }
         }
 
         *, *::before, *::after { box-sizing: border-box; }
@@ -58,7 +91,7 @@
             aspect-ratio: 4 / 3;
             padding: 1.5rem;
             border-radius: 28px;
-            background: #ffffff;
+            background: var(--surface);
             color: var(--ink);
             transition: background-color 0.3s ease, color 0.3s ease;
         }
@@ -92,7 +125,7 @@
             border: 0;
             border-radius: 16px;
             background: var(--ink);
-            color: #ffffff;
+            color: var(--on-ink);
             font: inherit;
             font-size: 1.125rem;
             font-weight: 600;
@@ -158,7 +191,7 @@
             cursor: pointer;
         }
 
-        .chip:hover { background: #ffffff; }
+        .chip:hover { background: var(--hover); }
 
         .chip-swatch {
             display: block;
@@ -181,7 +214,7 @@
             padding: 0.05rem 0.45rem;
             border-radius: 999px;
             background: var(--ink);
-            color: #ffffff;
+            color: var(--on-ink);
             font-size: 0.75rem;
             font-weight: 600;
         }
@@ -389,6 +422,41 @@
         .stop:disabled { opacity: 0.4; cursor: default; }
         .manual-toggle { margin-top: 0.75rem; }
 
+        /* ---------- Thème, progression, succès, carte ---------- */
+
+        .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+        .theme-btn { flex: none; padding: 0.4rem 0.8rem; font-size: 0.85rem; white-space: nowrap; }
+
+        .tiers { display: grid; gap: 0.85rem; margin: 0 0 1.25rem; padding: 0; list-style: none; }
+        .tier-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.1rem 0.75rem; }
+        .tier-name { font-weight: 700; }
+        .tier-rule { color: var(--muted); font-size: 0.85rem; }
+        .tier-count { margin-left: auto; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+        .bar { height: 0.5rem; margin-top: 0.35rem; overflow: hidden; border-radius: 999px; background: var(--line); }
+        .bar-fill { height: 100%; border-radius: inherit; background: var(--tier, var(--ink)); }
+
+        .ach-list { display: grid; gap: 0.75rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+        .ach { padding: 0.75rem 1rem; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+        .ach.is-done { border-color: var(--ink); }
+        .ach-head { display: flex; align-items: baseline; gap: 0.75rem; }
+        .ach-desc { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.9rem; }
+
+        .seg { display: inline-flex; margin: 0 0 0.75rem; overflow: hidden; border: 2px solid var(--ink); border-radius: 12px; }
+        .seg-btn {
+            padding: 0.4rem 0.9rem;
+            border: 0;
+            background: var(--surface);
+            color: var(--ink);
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .seg-btn.is-active { background: var(--ink); color: var(--on-ink); }
+        #map-points { touch-action: manipulation; cursor: crosshair; }
+
+        /* les pastilles hors de l'écran ne sont ni mises en page ni dessinées */
+        .grid > li { content-visibility: auto; contain-intrinsic-size: auto 6.5rem; }
+
         /* ---------- Divers ---------- */
 
         .reset {
@@ -413,7 +481,7 @@
             padding: 0.6rem 1rem;
             border-radius: 12px;
             background: var(--ink);
-            color: #ffffff;
+            color: var(--on-ink);
             font-size: 0.9rem;
             opacity: 0;
             pointer-events: none;
@@ -447,9 +515,12 @@
 
 <body>
     <main>
-        <header>
-            <h1>Color Gacha</h1>
-            <p class="lede">Une couleur par tirage, parmi 16 777 216.</p>
+        <header class="top">
+            <div>
+                <h1>Color Gacha</h1>
+                <p class="lede">Une couleur par tirage, parmi 16 777 216.</p>
+            </div>
+            <button class="btn theme-btn" id="theme-toggle" type="button">Thème : auto</button>
         </header>
 
         <section aria-label="Tirage">
@@ -482,6 +553,10 @@
                 <dt>Couleurs uniques</dt>
                 <dd id="stat-unique">0</dd>
             </div>
+            <div>
+                <dt>Collection</dt>
+                <dd id="stat-percent">0 %</dd>
+            </div>
         </dl>
 
         <section aria-labelledby="convert-title">
@@ -495,20 +570,33 @@
 
         <section aria-labelledby="maps-title">
             <h2 id="maps-title">Carte des couleurs</h2>
-            <p class="map-help">Teinte en largeur, luminosité en hauteur : blanc en haut, noir en bas.</p>
-            <canvas class="map" id="map-points" width="600" height="380" role="img" aria-label="Carte des couleurs obtenues, avec un carré par couleur"></canvas>
+            <p class="map-help">Teinte en largeur, luminosité en hauteur : blanc en haut, noir en bas. En mode « Progression », une case est d’autant plus vive que tu possèdes une grande part de ses couleurs.</p>
+            <div class="seg" role="group" aria-label="Affichage de la carte">
+                <button class="seg-btn" id="map-mode-progress" type="button" aria-pressed="true">Progression</button>
+                <button class="seg-btn" id="map-mode-colors" type="button" aria-pressed="false">Couleurs</button>
+            </div>
+            <canvas class="map" id="map-points" width="600" height="380" role="img" aria-label="Carte des couleurs : une case par zone de teinte et de luminosité"></canvas>
+            <p class="map-help" id="map-info">Touche ou survole une case pour voir sa progression.</p>
         </section>
 
         <section aria-labelledby="collection-title">
             <h2 id="collection-title">Inventaire</h2>
-            <ul class="legend" id="legend"></ul>
+            <ul class="tiers" id="legend"></ul>
             <p class="empty" id="empty">Aucune couleur pour l’instant. Fais un premier tirage.</p>
             <p class="map-help" id="recent-note" hidden>Les 20 dernières couleurs obtenues, les plus rares du dernier tirage en premier. Cette liste n’est pas sauvegardée.</p>
             <ul class="grid" id="grid"></ul>
             <button class="btn btn-block" id="open-all" type="button" hidden>Voir toutes les couleurs</button>
+            <button class="btn btn-block" id="open-ach" type="button">Succès</button>
         </section>
 
         <button class="reset" id="reset" type="button">Effacer la progression</button>
+        <dialog class="all" id="ach-dialog" aria-labelledby="ach-title">
+            <div class="all-head">
+                <h2 id="ach-title">Succès</h2>
+                <button class="btn" id="ach-close" type="button" style="margin-left: auto">Fermer</button>
+            </div>
+            <ul class="ach-list" id="ach-list"></ul>
+        </dialog>
         <dialog class="all" id="all-dialog" aria-labelledby="all-title">
             <div class="all-head">
                 <h2 id="all-title">Toutes les couleurs</h2>
@@ -542,7 +630,6 @@
     </main>
 
     <script>
-
         "use strict";
 
         const TOTAL = 1 << 24; // nombre de couleurs possibles : 16 777 216
@@ -551,16 +638,18 @@
         const $ = id => document.getElementById(id);
         const els = {
             stage: $("stage"), note: $("note"), pull: $("pull"), announce: $("announce"),
-            pulls: $("stat-pulls"), unique: $("stat-unique"),
-            empty: $("empty"), reset: $("reset"), legend: $("legend"), points: $("map-points"),
+            pulls: $("stat-pulls"), unique: $("stat-unique"), percent: $("stat-percent"),
+            empty: $("empty"), reset: $("reset"), legend: $("legend"), grid: $("grid"), recentNote: $("recent-note"),
+            points: $("map-points"), mapInfo: $("map-info"), modeProgress: $("map-mode-progress"), modeColors: $("map-mode-colors"),
+            themeBtn: $("theme-toggle"),
             openAll: $("open-all"), allDialog: $("all-dialog"), allClose: $("all-close"), allStatus: $("all-status"),
             allFilters: $("all-filters"), allSort: $("all-sort"), allSummary: $("all-summary"), allGrid: $("all-grid"),
             pager: $("all-pager"), pageInput: $("all-page-input"), pageTotal: $("all-pages"),
             prev: $("all-prev"), next: $("all-next"), allMissing: $("all-missing"),
+            openAch: $("open-ach"), achDialog: $("ach-dialog"), achClose: $("ach-close"), achList: $("ach-list"),
             convertInfo: $("convert-info"), convertOne: $("convert-one"), convertAll: $("convert-all"),
             slot: $("slot"), reelBox: $("reels"), stops: $("stops"), stopButtons: $("stop-buttons"),
             manual: $("manual-mode"), toast: $("toast"),
-        grid: $("grid"), recentNote: $("recent-note"),
         };
 
         /* ---------- Outils ---------- */
@@ -570,6 +659,7 @@
         const digitOf = (v, c) => (v >> (20 - 4 * c)) & 15; // chiffre de la colonne c (0 = à gauche)
         const rnd = n => Math.floor(Math.random() * n);
         const fmt = n => n.toLocaleString("fr-FR");
+        const fmtPct = f => (f * 100).toLocaleString("fr-FR", { maximumFractionDigits: f < 0.001 ? 4 : f < 0.1 ? 2 : 1 }) + " %";
 
         // Choisit un texte clair ou foncé lisible sur la couleur donnée.
         function textColorFor(v) {
@@ -581,16 +671,24 @@
 
         // repeats : nombre de fois où le même caractère apparaît dans le code (0 = 2 ou moins).
         // weight : probabilité du tirage de la couleur vedette, en %. Modifie ces valeurs pour régler le jeu.
+        // Avec 729 combinaisons par tirage, les couleurs à 3 ou 4 caractères identiques tombent très souvent :
+        // elles sont donc « Peu commun » et « Rare ». Les niveaux suivants restent vraiment exceptionnels.
         const RARITIES = [
-            { name: "Commun",     repeats: 0, weight: 80,  color: "#cdd3d9" },
-            { name: "Rare",       repeats: 3, weight: 15,  color: "#2f6fed" },
-            { name: "Épique",     repeats: 4, weight: 4,   color: "#8a3ffc" },
-            { name: "Légendaire", repeats: 5, weight: 0.9, color: "#e8890c" },
-            { name: "Mythique",   repeats: 6, weight: 0.1, color: "#e0245e" },
+            { name: "Commun",     repeats: 0, weight: 88,   color: "#8b95a1" },
+            { name: "Peu commun", repeats: 3, weight: 10,   color: "#3aa675" },
+            { name: "Rare",       repeats: 4, weight: 1.7,  color: "#2f6fed" },
+            { name: "Épique",     repeats: 5, weight: 0.28, color: "#8a3ffc" },
+            { name: "Légendaire", repeats: 6, weight: 0.02, color: "#e8890c" },
         ];
         // Si ces seuils changent, la sauvegarde est automatiquement recalculée au chargement.
         const RARITY_SIG = RARITIES.map(r => r.repeats).join(",");
         const TIER_BY_MAX = Array.from({ length: 7 }, (_, m) => RARITIES.reduce((t, r, i) => (m >= r.repeats ? i : t), 0));
+        const MIN_REPEAT = RARITIES.length > 1 ? Math.min(...RARITIES.slice(1).map(r => r.repeats)) : Infinity;
+
+        // Nombre de couleurs dont le chiffre le plus répété apparaît exactement k fois (k = 1 à 6), par dénombrement.
+        const CODES_BY_MAX = [0, 5765760, 9878400, 1077600, 54000, 1440, 16];
+        const tierTotals = RARITIES.map(() => 0); // nombre de couleurs possibles par rareté
+        CODES_BY_MAX.forEach((n, k) => { tierTotals[TIER_BY_MAX[k]] += n; });
 
         const seen = new Uint8Array(16);
         function tierOfCode(v) {
@@ -603,39 +701,50 @@
             return TIER_BY_MAX[max];
         }
 
+        // MASKS[r] : tous les choix de r colonnes parmi 6 (sous forme de masques de bits).
+        const MASKS = Array.from({ length: 7 }, (_, r) => {
+            const out = [];
+            for (let m = 0; m < 64; m++) {
+                let bits = 0;
+                for (let c = 0; c < 6; c++) bits += (m >> c) & 1;
+                if (bits === r) out.push(m);
+            }
+            return out;
+        });
+        const WEIGHT_SUM = RARITIES.reduce((sum, r) => sum + r.weight, 0);
+
         // Choisit d'abord une rareté selon les poids, puis fabrique une couleur de cette rareté.
         function drawCode() {
-            let roll = Math.random() * RARITIES.reduce((sum, r) => sum + r.weight, 0);
+            let roll = Math.random() * WEIGHT_SUM;
             let tier = 0;
             for (let i = 0; i < RARITIES.length; i++) {
                 roll -= RARITIES[i].weight;
                 if (roll < 0) { tier = i; break; }
             }
-            const { repeats } = RARITIES[tier];
+            const repeats = RARITIES[tier].repeats;
             if (repeats === 0) {
                 let v;
                 do { v = rnd(TOTAL); } while (tierOfCode(v) !== 0);
                 return v;
             }
             const digit = rnd(16);
-            const slots = [0, 1, 2, 3, 4, 5];
-            for (let i = slots.length - 1; i > 0; i--) { // mélange de Fisher-Yates
-                const j = rnd(i + 1);
-                [slots[i], slots[j]] = [slots[j], slots[i]];
-            }
-            slots.length = repeats;
+            const masks = MASKS[repeats];
+            const mask = masks[rnd(masks.length)];
             let v = 0;
-            for (let c = 0; c < 6; c++) v = (v << 4) | (slots.includes(c) ? digit : (digit + 1 + rnd(15)) % 16);
+            for (let c = 0; c < 6; c++) v = (v << 4) | (((mask >> c) & 1) ? digit : (digit + 1 + rnd(15)) % 16);
             return v;
         }
 
         /* ---------- Données du joueur ---------- */
 
-        const state = { pulls: 0, last: null }; // last : code de la meilleure couleur du dernier tirage
+        const state = { pulls: 0, last: null, conv: 0 }; // last : meilleure couleur du dernier tirage ; conv : conversions faites
         const owned = new Uint8Array(TOTAL >> 3);   // 1 bit par couleur possible (2 Mo) : 1 = obtenue
-        const dups = new Map();                     // code -> exemplaires en plus du premier
+        const extras = new Uint16Array(TOTAL);      // exemplaires en plus du premier (les « doubles »), par couleur
         const tierCounts = RARITIES.map(() => 0);   // couleurs obtenues, par rareté
-        let spare = 0;                              // total des doubles
+        let spare = 0;        // total des doubles
+        let dupColors = 0;    // nombre de couleurs qui ont au moins un double
+        let ownedVersion = 0; // change à chaque nouvelle couleur (sert à rafraîchir la copie du worker)
+        let achieved = new Set();
 
         const isOwned = v => (owned[v >> 3] >> (v & 7)) & 1;
         const uniqueCount = () => tierCounts.reduce((a, b) => a + b, 0);
@@ -643,28 +752,45 @@
         // Ajoute une couleur. Renvoie true si elle est nouvelle ; sinon elle devient un double.
         function acquire(v, tier) {
             if (isOwned(v)) {
-                dups.set(v, (dups.get(v) || 0) + 1);
+                if (extras[v] === 0) dupColors++;
+                if (extras[v] < 65535) extras[v]++;
                 spare++;
                 return false;
             }
             owned[v >> 3] |= 1 << (v & 7);
             tierCounts[tier]++;
+            ownedVersion++;
             return true;
         }
 
+        function setExtra(v, n) {
+            n = Math.min(Math.max(0, Math.floor(n) || 0), 65535);
+            if (!n) return;
+            if (extras[v] === 0) dupColors++;
+            spare += n - extras[v];
+            extras[v] = n;
+        }
+
         function recountTiers() {
-            if (!tierMap) buildTierMap();
+            const map = getTierMap();
             tierCounts.fill(0);
-            for (let v = 0; v < TOTAL; v++) if (isOwned(v)) tierCounts[tierMap[v]]++;
+            for (let v = 0; v < TOTAL; v++) if (isOwned(v)) tierCounts[map[v]]++;
         }
 
         /* ---------- Carte des couleurs ---------- */
+        // Chaque case regroupe les couleurs de même teinte et même luminosité. Deux affichages : la progression
+        // (une case est d'autant plus vive qu'on en possède une grande part) ou la couleur la plus rare de chaque case.
 
         const MAP_W = 600, MAP_H = 380, PIXEL = 6;
         const CELL_COLS = Math.ceil(MAP_W / PIXEL);
         const CELL_ROWS = Math.ceil(MAP_H / PIXEL);
-        const cells = new Int32Array(CELL_COLS * CELL_ROWS).fill(-1); // couleur affichée dans chaque case (-1 = vide)
+        const cells = new Int32Array(CELL_COLS * CELL_ROWS).fill(-1); // couleur la plus rare de la case (-1 = aucune)
         const cellTier = new Int8Array(cells.length).fill(-1);          // rareté de cette couleur
+        const cellOwned = new Uint32Array(cells.length);                // couleurs obtenues dans la case
+        const cellTotal = new Uint32Array(cells.length);                // couleurs possibles dans la case
+        let statsReady = false;
+        let mapMode = "progress";
+        let emptyColor = "#d5dae0";
         const pointsCtx = els.points.getContext("2d");
 
         // Case de la carte : teinte en largeur, luminosité en hauteur (blanc en haut, noir en bas).
@@ -707,63 +833,212 @@
         }
 
         function drawCell(idx) {
-            if (cells[idx] < 0) return;
             const px = (idx % CELL_COLS) * PIXEL;
             const py = Math.floor(idx / CELL_COLS) * PIXEL;
-            pointsCtx.fillStyle = "#1b1f24";
-            pointsCtx.fillRect(px, py, PIXEL, PIXEL);
-            pointsCtx.fillStyle = hexOf(cells[idx]);
-            pointsCtx.fillRect(px + 1, py + 1, PIXEL - 2, PIXEL - 2);
+            if (mapMode === "progress") {
+                pointsCtx.fillStyle = emptyColor;
+                pointsCtx.fillRect(px, py, PIXEL, PIXEL);
+                if (!cellTotal[idx] || !cellOwned[idx]) return;
+                const hue = ((px + PIXEL / 2) / MAP_W) * 360;
+                const light = Math.min(1, Math.max(0, 1 - (py + PIXEL / 2) / MAP_H));
+                pointsCtx.globalAlpha = Math.pow(cellOwned[idx] / cellTotal[idx], 0.6);
+                pointsCtx.fillStyle = `hsl(${hue.toFixed(0)}, 100%, ${(light * 100).toFixed(1)}%)`;
+                pointsCtx.fillRect(px, py, PIXEL, PIXEL);
+                pointsCtx.globalAlpha = 1;
+            } else if (cells[idx] >= 0) { // le dégradé de fond est déjà peint dessous
+                pointsCtx.fillStyle = hexOf(cells[idx]);
+                pointsCtx.fillRect(px, py, PIXEL, PIXEL);
+            }
         }
 
-        // buckets[tier] = codes à placer. Une case montre la couleur la plus rare qu'elle contient
+        // buckets[tier] = codes nouvellement obtenus. Une case retient la couleur la plus rare qu'elle contient
         // (à rareté égale, la plus récente). Chaque case modifiée n'est redessinée qu'une fois.
         function placeColors(buckets, draw) {
             const changed = new Set();
             buckets.forEach((bucket, tier) => {
                 for (const v of bucket) {
                     const idx = cellOf(v);
+                    cellOwned[idx]++;
+                    if (draw && mapMode === "progress") changed.add(idx);
                     if (cellTier[idx] > tier) continue;
                     cells[idx] = v;
                     cellTier[idx] = tier;
                     if (draw) changed.add(idx);
                 }
             });
-            changed.forEach(idx => drawCell(idx));
+            if (draw) changed.forEach(idx => drawCell(idx));
         }
 
-        // Reconstruit la carte depuis la table de bits, sans construire de liste intermédiaire.
-        function rebuildCells() {
-            if (!tierMap) buildTierMap();
+        // Recalcule toute la carte depuis la table de bits (une fois, si la sauvegarde n'a pas ces informations).
+        function computeCellStats() {
             cells.fill(-1);
             cellTier.fill(-1);
+            cellOwned.fill(0);
+            cellTotal.fill(0);
             for (let v = 0; v < TOTAL; v++) {
-                if (!isOwned(v)) continue;
-                const tier = tierMap[v];
                 const idx = cellOf(v);
-                if (cellTier[idx] <= tier) {
-                    cells[idx] = v;
-                    cellTier[idx] = tier;
+                cellTotal[idx]++;
+                if (isOwned(v)) {
+                    cellOwned[idx]++;
+                    const tier = tierOfCode(v);
+                    if (cellTier[idx] <= tier) {
+                        cells[idx] = v;
+                        cellTier[idx] = tier;
+                    }
                 }
             }
+            statsReady = true;
         }
 
-        // Sans argument, toute la carte est redessinée (chargement, réinitialisation).
+        // Sans argument, toute la carte est redessinée (chargement, réinitialisation, changement d'affichage ou de thème).
         function drawMaps(buckets) {
             if (buckets) {
                 placeColors(buckets, true);
                 return;
             }
-            paintBase(pointsCtx);
+            emptyColor = getComputedStyle(document.documentElement).getPropertyValue("--map-empty").trim() || emptyColor;
+            if (mapMode === "progress") {
+                pointsCtx.fillStyle = emptyColor;
+                pointsCtx.fillRect(0, 0, MAP_W, MAP_H);
+            } else {
+                paintBase(pointsCtx);
+            }
             for (let i = 0; i < cells.length; i++) drawCell(i);
         }
 
-        /* ---------- Sauvegarde (IndexedDB) ---------- */
-        // Une seule fiche : la table de bits (2 Mo, quel que soit le nombre de couleurs), les doubles,
-        // les compteurs et la carte. Les anciennes sauvegardes du localStorage sont converties au premier chargement.
+        // Texte affiché quand on touche ou survole une case.
+        function showCellInfo(event) {
+            if (!statsReady) return;
+            const rect = els.points.getBoundingClientRect();
+            const x = ((event.clientX - rect.left) * MAP_W) / rect.width;
+            const y = ((event.clientY - rect.top) * MAP_H) / rect.height;
+            const col = Math.min(CELL_COLS - 1, Math.max(0, (x / PIXEL) | 0));
+            const row = Math.min(CELL_ROWS - 1, Math.max(0, (y / PIXEL) | 0));
+            const idx = row * CELL_COLS + col;
+            const hue = Math.round(((col + 0.5) * PIXEL / MAP_W) * 360);
+            const light = Math.round((1 - ((row + 0.5) * PIXEL) / MAP_H) * 100);
+            const total = cellTotal[idx];
+            els.mapInfo.textContent = total
+                ? `Teinte ${hue}°, luminosité ${light} % : ${fmt(cellOwned[idx])} sur ${fmt(total)} couleurs (${fmtPct(cellOwned[idx] / total)}).`
+                : `Teinte ${hue}°, luminosité ${light} % : aucune couleur dans cette case.`;
+        }
 
-        const DB_NAME = "color-gacha", DB_STORE = "kv", SAVE_KEY = "save";
+        /* ---------- Sauvegarde (IndexedDB, compressée et signée) ---------- */
+        // Deux fiches alternées (slotA / slotB) : si l'une est corrompue ou modifiée, on retombe sur l'autre.
+        // Contenu : table de bits des couleurs (2 Mo), doubles, compteurs, carte, succès. Le tout est compressé,
+        // brouillé et signé. Attention : la clé étant dans ce fichier, cela décourage la triche sans l'empêcher.
+
+        const SECRET = "color-gacha/2026";
+        const SEED = [...SECRET].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619), 2166136261) >>> 0;
+        const DB_NAME = "color-gacha", DB_STORE = "kv";
         let db = null;
+        let saveSeq = 0;
+
+        // Brouillage réversible (xorshift32) : les octets ne sont plus lisibles ni modifiables à la main.
+        function scramble(bytes) {
+            let x = SEED || 1;
+            for (let i = 0; i < bytes.length; i++) {
+                x ^= x << 13;
+                x ^= x >>> 17;
+                x ^= x << 5;
+                bytes[i] ^= x & 255;
+            }
+            return bytes;
+        }
+
+        // Signature de 64 bits dépendant des octets, du numéro de version et de la clé.
+        function hashBytes(bytes, seq) {
+            let h1 = (0xdeadbeef ^ SEED ^ seq) | 0, h2 = (0x41c6ce57 ^ SEED) | 0;
+            for (let i = 0; i < bytes.length; i++) {
+                const b = bytes[i];
+                h1 = Math.imul(h1 ^ b, 2654435761);
+                h2 = Math.imul(h2 ^ b, 1597334677);
+            }
+            h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+            h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+            return [h1 >>> 0, h2 >>> 0];
+        }
+
+        const canCompress = typeof CompressionStream === "function" && typeof DecompressionStream === "function";
+        async function pipeBytes(bytes, stream) {
+            const out = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+            return new Uint8Array(await out.arrayBuffer());
+        }
+        const deflate = bytes => pipeBytes(bytes, new CompressionStream("deflate-raw"));
+        const inflate = bytes => pipeBytes(bytes, new DecompressionStream("deflate-raw"));
+
+        function writeVarint(buf, pos, n) {
+            while (n >= 128) {
+                buf[pos++] = (n & 127) | 128;
+                n >>>= 7;
+            }
+            buf[pos++] = n;
+            return pos;
+        }
+
+        // Assemble : [taille du bloc JSON][JSON][table de bits][doubles en varints : écarts entre codes, puis exemplaires].
+        function packSave() {
+            let codes = new Uint32Array(dupColors + 16);
+            let counts = new Uint16Array(dupColors + 16);
+            let n = 0;
+            for (let v = 0; v < TOTAL; v++) {
+                if (!extras[v]) continue;
+                if (n === codes.length) { // le compteur ne devrait jamais être dépassé ; par sécurité on agrandit
+                    const bigger = new Uint32Array(n * 2), biggerCounts = new Uint16Array(n * 2);
+                    bigger.set(codes);
+                    biggerCounts.set(counts);
+                    codes = bigger;
+                    counts = biggerCounts;
+                }
+                codes[n] = v;
+                counts[n++] = extras[v];
+            }
+            const meta = new TextEncoder().encode(JSON.stringify({
+                pulls: state.pulls, last: state.last, conv: state.conv, ach: [...achieved],
+                tierCounts, sig: RARITY_SIG, px: PIXEL, dupCount: n,
+                cells: Array.from(cells), cellOwned: Array.from(cellOwned), cellTotal: Array.from(cellTotal),
+            }));
+            const varints = new Uint8Array(n * 8);
+            let pos = 0, prev = 0;
+            for (let i = 0; i < n; i++) {
+                pos = writeVarint(varints, pos, codes[i] - prev);
+                prev = codes[i];
+            }
+            for (let i = 0; i < n; i++) pos = writeVarint(varints, pos, counts[i]);
+
+            const out = new Uint8Array(4 + meta.length + owned.length + pos);
+            new DataView(out.buffer).setUint32(0, meta.length, true);
+            out.set(meta, 4);
+            out.set(owned, 4 + meta.length);
+            out.set(varints.subarray(0, pos), 4 + meta.length + owned.length);
+            return out;
+        }
+
+        function unpackSave(bytes) {
+            const metaLen = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
+            const data = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + metaLen)));
+            const start = 4 + metaLen;
+            data.owned = bytes.subarray(start, start + owned.length);
+            let pos = start + owned.length;
+            const readVarint = () => {
+                let n = 0, shift = 0, b;
+                do {
+                    b = bytes[pos++];
+                    n += (b & 127) * 2 ** shift;
+                    shift += 7;
+                } while (b & 128);
+                return n;
+            };
+            data.dupCodes = new Uint32Array(data.dupCount);
+            data.dupExtras = new Uint16Array(data.dupCount);
+            let prev = 0;
+            for (let i = 0; i < data.dupCount; i++) {
+                prev += readVarint();
+                data.dupCodes[i] = prev;
+            }
+            for (let i = 0; i < data.dupCount; i++) data.dupExtras[i] = readVarint();
+            return data;
+        }
 
         function openDb() {
             return new Promise((resolve, reject) => {
@@ -788,19 +1063,48 @@
             tx.onerror = tx.onabort = () => reject(tx.error);
         });
 
-        // Les doubles sont envoyés en tableaux typés : bien plus rapide à copier qu'une liste de paires.
-        function snapshot() {
-            const dupCodes = new Uint32Array(dups.size);
-            const dupExtras = new Uint32Array(dups.size);
-            let i = 0;
-            for (const [v, extra] of dups) {
-                dupCodes[i] = v;
-                dupExtras[i++] = extra;
+        const dbDelete = key => new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, "readwrite");
+            tx.objectStore(DB_STORE).delete(key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = tx.onabort = () => reject(tx.error);
+        });
+
+        async function writeSave() {
+            const raw = packSave();
+            const compressed = canCompress;
+            const body = scramble(compressed ? await deflate(raw) : raw);
+            saveSeq++;
+            await dbPut(saveSeq % 2 ? "slotA" : "slotB", {
+                v: 4, seq: saveSeq, z: compressed, size: raw.length, data: body, sig: hashBytes(body, saveSeq),
+            });
+        }
+
+        // Lit les deux fiches, ignore celles dont la signature ne correspond pas et garde la plus récente.
+        // Renvoie { data, rejected } : rejected = nombre de fiches présentes mais invalides.
+        async function readSave() {
+            let best = null, rejected = 0;
+            for (const key of ["slotA", "slotB"]) {
+                let rec = null;
+                try { rec = await dbGet(key); } catch (err) { /* fiche illisible */ }
+                if (!rec) continue;
+                let valid = rec.v === 4 && ArrayBuffer.isView(rec.data) && Array.isArray(rec.sig);
+                if (valid) {
+                    const [a, b] = hashBytes(rec.data, rec.seq);
+                    valid = rec.sig[0] === a && rec.sig[1] === b;
+                }
+                if (!valid) { rejected++; continue; }
+                if (!best || rec.seq > best.seq) best = rec;
             }
-            return {
-                v: 3, pulls: state.pulls, last: state.last, owned, dupCodes, dupExtras,
-                tierCounts: tierCounts.slice(), sig: RARITY_SIG, px: PIXEL, cells,
-            };
+            if (!best) return { data: null, rejected };
+            try {
+                const body = scramble(best.data.slice());
+                const raw = best.z ? await inflate(body) : body;
+                saveSeq = best.seq;
+                return { data: unpackSave(raw), rejected };
+            } catch (err) {
+                return { data: null, rejected: rejected + 1 };
+            }
         }
 
         // Deux onglets ne doivent pas écrire la même sauvegarde : le plus ancien se verrouille dès qu'un autre enregistre.
@@ -828,7 +1132,7 @@
             try {
                 do {
                     saveAgain = false;
-                    await dbPut(SAVE_KEY, snapshot());
+                    await writeSave();
                     if (channel) channel.postMessage("saved");
                 } while (saveAgain);
             } catch (err) {
@@ -857,31 +1161,28 @@
 
         function applySave(data) {
             owned.set(data.owned);
+            ownedVersion++;
             state.pulls = Number.isFinite(data.pulls) ? data.pulls : 0;
             state.last = Number.isInteger(data.last) ? data.last : null;
-            dups.clear();
+            state.conv = Number.isFinite(data.conv) ? data.conv : 0;
+            extras.fill(0);
             spare = 0;
-            if (data.dupCodes) {
-                data.dupCodes.forEach((v, i) => {
-                    dups.set(v, data.dupExtras[i]);
-                    spare += data.dupExtras[i];
-                });
-            } else {
-                for (const [v, extra] of data.dups || []) { // ancien format de la fiche
-                    dups.set(v, extra);
-                    spare += extra;
-                }
-            }
+            dupColors = 0;
+            if (data.dupCodes) data.dupCodes.forEach((v, i) => setExtra(v, data.dupExtras[i]));
+            else for (const [v, extra] of data.dups || []) setExtra(v, extra); // fiche de l'ancienne version
+            achieved = new Set(Array.isArray(data.ach) ? data.ach : []);
             // Si les seuils de rareté ou la taille des carrés ont changé, on recalcule ce qui en dépend.
             const sameRarities = data.sig === RARITY_SIG && Array.isArray(data.tierCounts) && data.tierCounts.length === RARITIES.length;
             if (sameRarities) data.tierCounts.forEach((n, i) => (tierCounts[i] = n));
             else recountTiers();
-            if (sameRarities && data.px === PIXEL && data.cells && data.cells.length === cells.length) {
+            const n = cells.length;
+            statsReady = sameRarities && data.px === PIXEL && [data.cells, data.cellOwned, data.cellTotal].every(a => a && a.length === n);
+            if (statsReady) {
                 cells.set(data.cells);
+                cellOwned.set(data.cellOwned);
+                cellTotal.set(data.cellTotal);
                 cellTier.fill(-1);
                 cells.forEach((v, i) => { if (v >= 0) cellTier[i] = tierOfCode(v); });
-            } else {
-                rebuildCells();
             }
         }
 
@@ -930,14 +1231,13 @@
         function importLegacy(legacy) {
             state.pulls = legacy.pulls;
             state.last = legacy.last;
-            const buckets = RARITIES.map(() => []);
             for (let i = legacy.colors.length - 1; i >= 0; i--) { // du plus ancien au plus récent
                 const { v, count } = legacy.colors[i];
                 const tier = tierOfCode(v);
-                if (acquire(v, tier)) buckets[tier].push(v);
+                acquire(v, tier);
                 for (let k = 1; k < count; k++) acquire(v, tier);
             }
-            placeColors(buckets, false);
+            statsReady = false;
         }
 
         /* ---------- Affichage ---------- */
@@ -953,19 +1253,42 @@
         function renderStats() {
             els.pulls.textContent = fmt(state.pulls);
             els.unique.textContent = fmt(uniqueCount());
+            els.percent.textContent = fmtPct(uniqueCount() / TOTAL);
         }
 
+        // Progression par rareté : une barre « obtenues sur possibles ».
         function renderInventory() {
             const unique = uniqueCount();
             els.empty.hidden = unique > 0;
             els.openAll.hidden = unique === 0;
             els.openAll.textContent = `Voir toutes les couleurs (${fmt(unique)})`;
+            els.openAch.textContent = `Succès (${achieved.size} sur ${ACHIEVEMENTS.length})`;
             els.legend.replaceChildren();
             RARITIES.forEach((r, i) => {
                 const li = document.createElement("li");
                 li.style.setProperty("--tier", r.color);
-                const rule = r.repeats ? `${r.repeats} identiques` : "2 identiques ou moins";
-                li.textContent = `${r.name} (${rule}) : ${fmt(tierCounts[i])}`;
+
+                const head = document.createElement("div");
+                head.className = "tier-head";
+                const name = document.createElement("span");
+                name.className = "tier-name";
+                name.textContent = r.name;
+                const rule = document.createElement("span");
+                rule.className = "tier-rule";
+                rule.textContent = r.repeats ? `${r.repeats} identiques` : "2 identiques ou moins";
+                const count = document.createElement("span");
+                count.className = "tier-count";
+                count.textContent = `${fmt(tierCounts[i])} sur ${fmt(tierTotals[i])}`;
+                head.append(name, rule, count);
+
+                const bar = document.createElement("div");
+                bar.className = "bar";
+                const fill = document.createElement("div");
+                fill.className = "bar-fill";
+                fill.style.width = `${Math.min(100, (tierCounts[i] / tierTotals[i]) * 100)}%`;
+                bar.append(fill);
+
+                li.append(head, bar);
                 els.legend.append(li);
             });
         }
@@ -977,20 +1300,21 @@
             renderRecent();
             drawMaps(buckets);
             renderConvert();
+            checkAchievements();
         }
 
         let toastTimer;
-        function toast(message) {
+        function toast(message, duration = 1600) {
             if (els.allDialog.open) {
                 els.allStatus.textContent = message;
                 clearTimeout(toastTimer);
-                toastTimer = setTimeout(() => (els.allStatus.textContent = ""), 1600);
+                toastTimer = setTimeout(() => (els.allStatus.textContent = ""), duration);
                 return;
             }
             els.toast.textContent = message;
             els.toast.classList.add("is-visible");
             clearTimeout(toastTimer);
-            toastTimer = setTimeout(() => els.toast.classList.remove("is-visible"), 1600);
+            toastTimer = setTimeout(() => els.toast.classList.remove("is-visible"), duration);
         }
 
         /* ---------- Dernières couleurs (en mémoire seulement) ---------- */
@@ -1012,7 +1336,7 @@
 
         function renderRecent() {
             els.recentNote.hidden = recent.length === 0;
-            els.grid.replaceChildren(...recent.map(v => makeChip({ v, count: 1 + (dups.get(v) || 0) })));
+            els.grid.replaceChildren(...recent.map(v => makeChip({ v, count: 1 + extras[v] })));
         }
 
         /* ---------- Tirage ---------- */
@@ -1081,7 +1405,7 @@
             saveState();
 
             const rarity = RARITIES[best.tier].name;
-            const status = best.isNew ? "nouvelle couleur" : `déjà obtenue, ×${1 + (dups.get(best.v) || 0)}`;
+            const status = best.isNew ? "nouvelle couleur" : `déjà obtenue, ×${1 + extras[best.v]}`;
             const summary = `${fmt(added)} ${added > 1 ? "nouvelles couleurs" : "nouvelle couleur"} sur ${fmt(count * PATHS)} combinaisons.`;
             const note = `${count === 1 ? "" : `Meilleur des ${count} : `}${rarity}, ${status}. ${summary}`;
 
@@ -1102,51 +1426,127 @@
         }
 
         /* ---------- Inventaire ---------- */
-        // L'inventaire ne garde aucune liste en mémoire : il parcourt une table de 16 777 216 cases (la rareté de
-        // chaque couleur possible, calculée à la première ouverture) et la confronte à la table de bits des couleurs obtenues.
+        // L'inventaire ne garde aucune liste : il parcourt une table de 16 777 216 cases (la rareté de chaque couleur
+        // possible) et la confronte à la table de bits des couleurs obtenues. Ce parcours se fait dans un Web Worker
+        // pour que la page ne se fige jamais ; sans worker, il se fait directement dans la page.
 
-        const PAGE_SIZE = 1000;
-        const view = { tiers: new Set(RARITIES.keys()), sort: "rarest", page: 0, missing: false };
-        let tierMap = null;
-        let tierTotals = null; // nombre de couleurs possibles par rareté
-
-        // Seules les couleurs non communes sont à repérer : elles ont un chiffre répété au moins `m` fois
-        // (m = plus petit seuil au-dessus de « commun »). On les génère directement (environ 1,3 million de codes
-        // pour m = 3) au lieu de parcourir les 16,7 millions de couleurs.
-        function buildTierMap() {
-            tierMap = new Uint8Array(TOTAL); // 0 = commun
-            tierTotals = RARITIES.map(() => 0);
-            const m = Math.min(...RARITIES.slice(1).map(r => r.repeats));
-            if (RARITIES.length > 1 && m >= 2) {
+        // Génère la table des raretés. Seules les couleurs non communes sont à repérer : elles ont un chiffre répété
+        // au moins `minRepeat` fois. On les génère directement (environ 1,3 million de codes pour 3) au lieu de
+        // parcourir les 16,7 millions de couleurs.
+        function computeTierMap(minRepeat) {
+            const map = new Uint8Array(TOTAL); // 0 = commun
+            if (minRepeat >= 2 && minRepeat <= 6) {
                 for (let d = 0; d < 16; d++) {
                     for (let mask = 0; mask < 64; mask++) {
                         let bits = 0;
                         for (let c = 0; c < 6; c++) bits += (mask >> c) & 1;
-                        if (bits !== m) continue;
-                        for (let f = 0, n = 16 ** (6 - m); f < n; f++) {
+                        if (bits !== minRepeat) continue;
+                        for (let f = 0, n = 16 ** (6 - minRepeat); f < n; f++) {
                             let v = 0, rest = f;
                             for (let c = 0; c < 6; c++) {
                                 let digit = d;
                                 if (!((mask >> c) & 1)) { digit = rest & 15; rest >>= 4; }
                                 v |= digit << (4 * c);
                             }
-                            if (tierMap[v] === 0) {
-                                const t = tierOfCode(v);
-                                if (t > 0) { tierMap[v] = t; tierTotals[t]++; }
-                            }
+                            if (map[v] === 0) map[v] = tierOfCode(v);
                         }
                     }
                 }
-                tierTotals[0] = TOTAL - tierTotals.reduce((a, b) => a + b, 0);
-                return;
+                return map;
             }
-            for (let v = 0; v < TOTAL; v++) { // seuils inhabituels : parcours complet
-                const t = tierOfCode(v);
-                tierMap[v] = t;
-                tierTotals[t]++;
+            for (let v = 0; v < TOTAL; v++) map[v] = tierOfCode(v); // seuils inhabituels : parcours complet
+            return map;
+        }
+
+        // Renvoie les codes des couleurs obtenues (ou manquantes) : `skip` résultats ignorés, puis `take` pris.
+        function scanCodes(tierMap, ownedBits, wantOwned, segs, skip, take) {
+            const out = new Uint32Array(take);
+            let n = 0;
+            for (const seg of segs) {
+                if (skip >= seg.count) { skip -= seg.count; continue; }
+                const step = seg.desc ? -1 : 1;
+                for (let v = seg.desc ? TOTAL - 1 : 0; v >= 0 && v < TOTAL; v += step) {
+                    if (!seg.want[tierMap[v]] || ((ownedBits[v >> 3] >> (v & 7)) & 1) !== wantOwned) continue;
+                    if (skip > 0) { skip--; continue; }
+                    out[n++] = v;
+                    if (n === take) return out;
+                }
+            }
+            return out.slice(0, n);
+        }
+
+        const WORKER_SOURCE = `"use strict";
+        const TOTAL = ${TOTAL};
+        const TIER_BY_MAX = ${JSON.stringify(TIER_BY_MAX)};
+        const seen = new Uint8Array(16);
+        ${tierOfCode}
+        ${computeTierMap}
+        ${scanCodes}
+        let tierMap = null, ownedBits = null;
+        self.onmessage = e => {
+            const m = e.data;
+            if (m.type === "init") {
+                tierMap = computeTierMap(m.minRepeat);
+            } else if (m.type === "scan") {
+                if (m.owned) ownedBits = m.owned;
+                const codes = scanCodes(tierMap, ownedBits, m.wantOwned, m.segs, m.skip, m.take);
+                self.postMessage({ type: "result", id: m.id, codes }, [codes.buffer]);
+            }
+        };`;
+
+        let tierMapMain = null; // utilisée seulement si le worker est indisponible
+        const getTierMap = () => tierMapMain || (tierMapMain = computeTierMap(MIN_REPEAT));
+
+        let worker = null, workerFailed = false, nextId = 1, sentVersion = -1;
+        const pending = new Map();
+
+        function failWorker() {
+            workerFailed = true;
+            worker = null;
+            for (const [id, p] of pending) {
+                pending.delete(id);
+                p.resolve(scanCodes(getTierMap(), owned, ...p.args));
             }
         }
 
+        function startWorker() {
+            if (worker || workerFailed) return;
+            try {
+                const url = URL.createObjectURL(new Blob([WORKER_SOURCE], { type: "text/javascript" }));
+                worker = new Worker(url);
+                worker.onmessage = e => {
+                    const p = pending.get(e.data.id);
+                    if (p) {
+                        pending.delete(e.data.id);
+                        p.resolve(e.data.codes);
+                    }
+                };
+                worker.onerror = failWorker;
+                worker.postMessage({ type: "init", minRepeat: MIN_REPEAT });
+            } catch (err) {
+                failWorker();
+            }
+        }
+
+        function scanAsync(wantOwned, segs, skip, take) {
+            startWorker();
+            if (!worker) return Promise.resolve(scanCodes(getTierMap(), owned, wantOwned, segs, skip, take));
+            return new Promise(resolve => {
+                const id = nextId++;
+                const msg = { type: "scan", id, wantOwned, segs, skip, take };
+                const transfer = [];
+                if (sentVersion !== ownedVersion) { // la copie du worker n'est rafraîchie que si des couleurs ont changé
+                    msg.owned = owned.slice();
+                    transfer.push(msg.owned.buffer);
+                    sentVersion = ownedVersion;
+                }
+                pending.set(id, { resolve, args: [wantOwned, segs, skip, take] });
+                worker.postMessage(msg, transfer);
+            });
+        }
+
+        const PAGE_SIZE = 1000;
+        const view = { tiers: new Set(RARITIES.keys()), sort: "rarest", page: 0, missing: false };
         const countFor = t => (view.missing ? tierTotals[t] - tierCounts[t] : tierCounts[t]);
 
         // Un segment = un ensemble de raretés parcouru dans un sens. Avec un tri par rareté, il y a un segment
@@ -1161,23 +1561,6 @@
             if (view.sort === "rarest") return tiers.reverse().map(t => segment([t], false));
             if (view.sort === "common") return tiers.map(t => segment([t], false));
             return [segment(tiers, view.sort === "desc")];
-        }
-
-        // Renvoie les codes des couleurs obtenues (ou manquantes) : `skip` résultats ignorés, puis `take` pris.
-        function scan(segs, skip, take) {
-            const wantOwned = view.missing ? 0 : 1;
-            const out = [];
-            for (const seg of segs) {
-                if (skip >= seg.count) { skip -= seg.count; continue; }
-                const step = seg.desc ? -1 : 1;
-                for (let v = seg.desc ? TOTAL - 1 : 0; v >= 0 && v < TOTAL; v += step) {
-                    if (!seg.want[tierMap[v]] || ((owned[v >> 3] >> (v & 7)) & 1) !== wantOwned) continue;
-                    if (skip > 0) { skip--; continue; }
-                    out.push(v);
-                    if (out.length === take) return out;
-                }
-            }
-            return out;
         }
 
         function makeChip({ v, count }) {
@@ -1218,16 +1601,18 @@
             return item;
         }
 
-        function renderAll() {
-            if (!tierMap) buildTierMap();
+        let renderToken = 0;
+        async function renderAll() {
+            const token = ++renderToken; // une réponse plus ancienne que la dernière demande est ignorée
             const sel = RARITIES.map((_, i) => view.tiers.has(i));
             const total = sel.reduce((n, on, t) => n + (on ? countFor(t) : 0), 0);
             const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
             view.page = Math.min(view.page, pages - 1);
 
-            const items = scan(segments(sel), view.page * PAGE_SIZE, PAGE_SIZE)
-                .map(v => ({ v, count: view.missing ? 0 : 1 + (dups.get(v) || 0) }));
-            els.allGrid.replaceChildren(...items.map(makeChip));
+            const codes = await scanAsync(view.missing ? 0 : 1, segments(sel), view.page * PAGE_SIZE, PAGE_SIZE);
+            if (token !== renderToken) return;
+
+            els.allGrid.replaceChildren(...Array.from(codes, v => makeChip({ v, count: view.missing ? 0 : 1 + extras[v] })));
             els.allSummary.textContent = view.missing
                 ? `${fmt(total)} couleurs manquantes`
                 : `${fmt(total)} sur ${fmt(uniqueCount())} couleurs`;
@@ -1281,13 +1666,8 @@
         });
         els.openAll.addEventListener("click", () => {
             els.allDialog.showModal();
-            if (tierMap) {
-                renderAll();
-                return;
-            }
             els.allSummary.textContent = "Calcul des couleurs en cours…";
-            els.allGrid.replaceChildren();
-            setTimeout(renderAll, 30);
+            renderAll();
         });
         els.allClose.addEventListener("click", () => els.allDialog.close());
 
@@ -1472,29 +1852,48 @@
                 `${fmt(spare)} doubles en réserve. ${CONVERT_COST} doubles donnent 1 couleur jamais obtenue.`;
             els.convertOne.textContent = `Convertir ${CONVERT_COST} doubles`;
             els.convertAll.textContent = units > 1 ? `Tout convertir (${fmt(units)} couleurs)` : "Tout convertir";
-            els.convertOne.disabled = units < 1 || locked;
-            els.convertAll.disabled = units < 1 || locked;
+            els.convertOne.disabled = units < 1 || locked || busy;
+            els.convertAll.disabled = units < 1 || locked || busy;
         }
 
         // Convertit jusqu'à maxUnits lots de doubles en couleurs jamais obtenues (même chances de rareté qu'un tirage).
-        function convert(maxUnits) {
+        async function convert(maxUnits) {
             if (busy || locked) return;
-            const units = Math.min(maxUnits, Math.floor(spare / CONVERT_COST));
+            if (Math.floor(spare / CONVERT_COST) < 1) return;
+            busy = true;
+            setPullDisabled(true);
+            try {
+                await runConvert(Math.min(maxUnits, Math.floor(spare / CONVERT_COST)));
+            } finally {
+                setPullDisabled(locked);
+                busy = false;
+                renderConvert();
+            }
+        }
+
+        async function runConvert(units) {
             const buckets = RARITIES.map(() => []);
             let got = 0;
             let best = null;
+            let sliceStart = performance.now();
             for (let i = 0; i < units; i++) {
-                let v = null;
-                for (let tries = 0; tries < 1000 && v === null; tries++) {
+                let v = -1;
+                for (let tries = 0; tries < 1000 && v < 0; tries++) {
                     const candidate = drawCode();
                     if (!isOwned(candidate)) v = candidate;
                 }
-                if (v === null) break;
+                if (v < 0) break;
                 const tier = tierOfCode(v);
                 acquire(v, tier);
                 buckets[tier].push(v);
                 got++;
                 if (!best || tier > best.tier) best = { v, tier };
+                // Les grosses conversions se font par tranches de 30 ms : la page reste réactive et affiche l'avancement.
+                if ((i & 255) === 255 && performance.now() - sliceStart > 30) {
+                    els.note.textContent = `Conversion en cours… ${fmt(i + 1)} sur ${fmt(units)}`;
+                    await new Promise(resolve => setTimeout(resolve));
+                    sliceStart = performance.now();
+                }
             }
             if (!got) {
                 toast("Aucune couleur disponible pour la conversion");
@@ -1504,13 +1903,15 @@
             // On retire les doubles utilisés : chaque couleur garde toujours au moins un exemplaire.
             let need = got * CONVERT_COST;
             spare -= need;
-            for (const [v, extra] of dups) {
-                if (need === 0) break;
-                const take = Math.min(extra, need);
-                if (take === extra) dups.delete(v);
-                else dups.set(v, extra - take);
+            for (let v = 0; v < TOTAL && need > 0; v++) {
+                const e = extras[v];
+                if (!e) continue;
+                const take = e < need ? e : need;
+                extras[v] = e - take;
+                if (extras[v] === 0) dupColors--;
                 need -= take;
             }
+            state.conv += got;
             saveState();
 
             const rarity = RARITIES[best.tier].name;
@@ -1531,6 +1932,130 @@
 
         els.convertOne.addEventListener("click", () => convert(1));
         els.convertAll.addEventListener("click", () => convert(Infinity));
+
+        /* ---------- Succès ---------- */
+
+        const ACHIEVEMENTS = [];
+        const addAch = (id, name, desc, goal, value) => ACHIEVEMENTS.push({ id, name, desc, goal, value });
+
+        [[1, "Premier tirage"], [100, "Habitué"], [1000, "Joueur assidu"], [10000, "Maître du hasard"]]
+            .forEach(([n, name]) => addAch(`pulls-${n}`, name, `Fais ${fmt(n)} tirage${n > 1 ? "s" : ""}.`, n, () => state.pulls));
+        [[1000, "Collectionneur"], [100000, "Grand collectionneur"], [1000000, "Un million de couleurs"],
+         [TOTAL / 2, "À mi-chemin"], [TOTAL, "Le nuancier complet"]]
+            .forEach(([n, name]) => addAch(`unique-${n}`, name, `Obtiens ${fmt(n)} couleurs différentes.`, n, uniqueCount));
+        RARITIES.forEach((r, t) => {
+            if (t === 0) return;
+            addAch(`first-${t}`, `${r.name} : première`, `Obtiens une couleur de rareté ${r.name}.`, 1, () => tierCounts[t]);
+            if (t >= 2) {
+                addAch(`all-${t}`, `${r.name} : collection complète`,
+                    `Obtiens les ${fmt(tierTotals[t])} couleurs de rareté ${r.name}.`, tierTotals[t], () => tierCounts[t]);
+            }
+        });
+        addAch("conv-1", "Alchimiste", "Convertis des doubles en une nouvelle couleur.", 1, () => state.conv);
+        addAch("conv-100", "Maître alchimiste", "Fais 100 conversions.", 100, () => state.conv);
+
+        // silent : au chargement, les succès déjà mérités sont accordés sans notification.
+        function checkAchievements(silent) {
+            const unlocked = ACHIEVEMENTS.filter(a => !achieved.has(a.id) && a.value() >= a.goal);
+            if (!unlocked.length) return;
+            unlocked.forEach(a => achieved.add(a.id));
+            els.openAch.textContent = `Succès (${achieved.size} sur ${ACHIEVEMENTS.length})`;
+            saveState();
+            if (!silent) {
+                toast(unlocked.length === 1
+                    ? `Succès débloqué : ${unlocked[0].name}`
+                    : `${unlocked.length} succès débloqués : ${unlocked.map(a => a.name).join(", ")}`, 3500);
+            }
+        }
+
+        function renderAch() {
+            els.achList.replaceChildren(...ACHIEVEMENTS.map(a => {
+                const done = achieved.has(a.id);
+                const value = Math.min(a.value(), a.goal);
+                const li = document.createElement("li");
+                li.className = done ? "ach is-done" : "ach";
+
+                const head = document.createElement("div");
+                head.className = "ach-head";
+                const name = document.createElement("strong");
+                name.textContent = (done ? "✓ " : "") + a.name;
+                const count = document.createElement("span");
+                count.className = "tier-count";
+                count.textContent = `${fmt(value)} sur ${fmt(a.goal)}`;
+                head.append(name, count);
+
+                const desc = document.createElement("p");
+                desc.className = "ach-desc";
+                desc.textContent = a.desc;
+
+                const bar = document.createElement("div");
+                bar.className = "bar";
+                const fill = document.createElement("div");
+                fill.className = "bar-fill";
+                fill.style.width = `${(value / a.goal) * 100}%`;
+                bar.append(fill);
+
+                li.append(head, desc, bar);
+                return li;
+            }));
+        }
+
+        els.openAch.addEventListener("click", () => {
+            renderAch();
+            els.achDialog.showModal();
+        });
+        els.achClose.addEventListener("click", () => els.achDialog.close());
+
+        /* ---------- Thème et affichage de la carte ---------- */
+
+        const THEME_KEY = "color-gacha:theme";
+        const MAP_MODE_KEY = "color-gacha:mapmode";
+        const THEMES = [["auto", "Thème : auto"], ["light", "Thème : clair"], ["dark", "Thème : sombre"]];
+        let themeIndex = 0;
+
+        try {
+            const savedTheme = THEMES.findIndex(t => t[0] === localStorage.getItem(THEME_KEY));
+            if (savedTheme >= 0) themeIndex = savedTheme;
+            if (localStorage.getItem(MAP_MODE_KEY) === "colors") mapMode = "colors";
+        } catch (err) { /* préférences non mémorisées */ }
+
+        function applyTheme() {
+            const [mode, label] = THEMES[themeIndex];
+            if (mode === "auto") document.documentElement.removeAttribute("data-theme");
+            else document.documentElement.setAttribute("data-theme", mode);
+            els.themeBtn.textContent = label;
+        }
+
+        function applyMapMode() {
+            els.modeProgress.classList.toggle("is-active", mapMode === "progress");
+            els.modeColors.classList.toggle("is-active", mapMode === "colors");
+            els.modeProgress.setAttribute("aria-pressed", String(mapMode === "progress"));
+            els.modeColors.setAttribute("aria-pressed", String(mapMode === "colors"));
+        }
+
+        function setMapMode(mode) {
+            mapMode = mode;
+            try { localStorage.setItem(MAP_MODE_KEY, mode); } catch (err) { /* ignoré */ }
+            applyMapMode();
+            if (statsReady) drawMaps();
+        }
+
+        els.themeBtn.addEventListener("click", () => {
+            themeIndex = (themeIndex + 1) % THEMES.length;
+            try { localStorage.setItem(THEME_KEY, THEMES[themeIndex][0]); } catch (err) { /* ignoré */ }
+            applyTheme();
+            if (statsReady) drawMaps();
+        });
+        const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+        if (darkQuery.addEventListener) darkQuery.addEventListener("change", () => { if (statsReady) drawMaps(); });
+
+        els.modeProgress.addEventListener("click", () => setMapMode("progress"));
+        els.modeColors.addEventListener("click", () => setMapMode("colors"));
+        els.points.addEventListener("pointermove", showCellInfo);
+        els.points.addEventListener("click", showCellInfo);
+
+        applyTheme();
+        applyMapMode();
 
         /* ---------- Événements ---------- */
 
@@ -1558,12 +2083,17 @@
             if (busy || locked || !confirm("Effacer tous les tirages et l'inventaire ?")) return;
             state.pulls = 0;
             state.last = null;
+            state.conv = 0;
             owned.fill(0);
-            dups.clear();
+            extras.fill(0);
             spare = 0;
+            dupColors = 0;
+            ownedVersion++;
             tierCounts.fill(0);
             cells.fill(-1);
             cellTier.fill(-1);
+            cellOwned.fill(0); // le nombre de couleurs possibles par case ne change pas
+            achieved = new Set();
             recent = [];
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
@@ -1579,38 +2109,69 @@
 
         async function init() {
             setPullDisabled(true);
-            try { db = await openDb(); } catch (err) { db = null; }
+            try {
+                try { db = await openDb(); } catch (err) { db = null; }
 
-            let loaded = false;
-            if (db) {
-                try {
-                    const data = await dbGet(SAVE_KEY);
-                    if (data && data.v === 3 && data.owned) {
-                        applySave(data);
-                        loaded = true;
+                let loaded = false, fromOldRecord = false, legacy = null;
+                if (db) {
+                    const { data, rejected } = await readSave();
+                    if (data) {
+                        try {
+                            applySave(data);
+                            loaded = true;
+                            if (rejected) toast("Une sauvegarde modifiée a été ignorée : la précédente a été restaurée.", 4500);
+                        } catch (err) { /* contenu inutilisable : on repart de zéro */ }
+                    } else if (rejected) {
+                        toast("Sauvegarde modifiée ou corrompue : elle a été ignorée.", 4500);
+                    } else {
+                        try { // pas de fiche récente : ancienne fiche (version précédente) ?
+                            const old = await dbGet("save");
+                            if (old && old.v === 3 && old.owned) {
+                                applySave(old);
+                                loaded = true;
+                                fromOldRecord = true;
+                            }
+                        } catch (err) { /* aucune ancienne fiche */ }
                     }
-                } catch (err) {
-                    // Sauvegarde illisible : on retombe sur l'ancienne ou on repart de zéro.
+                } else {
+                    toast("Sauvegarde indisponible dans ce navigateur", 4500);
                 }
-            }
-            if (!loaded) {
-                const legacy = loadLegacy();
-                if (legacy) {
-                    importLegacy(legacy);
+                if (!loaded) {
+                    legacy = loadLegacy();
+                    if (legacy) importLegacy(legacy);
+                }
+
+                if (!statsReady) { // première fois, ou fiche sans données de carte : calcul unique
+                    els.note.textContent = "Préparation de la carte…";
+                    await new Promise(resolve => setTimeout(resolve, 30));
+                    computeCellStats();
+                    els.note.textContent = "Ta première couleur t’attend.";
+                    saveState();
+                }
+                checkAchievements(true);
+
+                if (state.last !== null) showColor(state.last, "Dernier tirage");
+                render();
+
+                // Les anciennes sauvegardes ne sont supprimées qu'une fois la nouvelle écrite.
+                if (fromOldRecord || legacy) {
+                    if (saveTimer !== null) {
+                        clearTimeout(saveTimer);
+                        saveTimer = null;
+                    }
                     if (await flushSave()) {
-                        LEGACY_KEYS.forEach(key => { try { localStorage.removeItem(key); } catch (err) { /* ignoré */ } });
+                        try {
+                            if (fromOldRecord) await dbDelete("save");
+                            LEGACY_KEYS.forEach(key => localStorage.removeItem(key));
+                        } catch (err) { /* ignoré */ }
                     }
                 }
+            } finally {
+                setPullDisabled(locked);
             }
-            if (!db) toast("Sauvegarde indisponible dans ce navigateur");
-
-            if (state.last !== null) showColor(state.last, "Dernier tirage");
-            render();
-            setPullDisabled(false);
         }
 
         init();
-
 
     </script>
 </body>
