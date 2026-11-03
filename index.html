@@ -457,6 +457,12 @@
         /* les pastilles hors de l'écran ne sont ni mises en page ni dessinées */
         .grid > li { content-visibility: auto; contain-intrinsic-size: auto 6.5rem; }
 
+        .options { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.5rem; margin-top: 0.75rem; }
+        .options .check { margin: 0; }
+        .mult { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+        .mult-label { color: var(--muted); font-size: 0.9rem; }
+        .mult .seg { flex-wrap: wrap; margin: 0; }
+
         /* ---------- Divers ---------- */
 
         .reset {
@@ -537,10 +543,15 @@
             </div>
             <div class="pull-row">
                 <button class="pull" id="pull" type="button">Tirer une couleur</button>
-                <button class="pull pull-multi" type="button" data-count="10" aria-label="Tirer 10 couleurs">×10</button>
-                <button class="pull pull-multi" type="button" data-count="100" aria-label="Tirer 100 couleurs">×100</button>
             </div>
-            <label class="check manual-toggle"><input type="checkbox" id="manual-mode"> Arrêt manuel des colonnes</label>
+            <div class="options">
+                <label class="check"><input type="checkbox" id="manual-mode"> Arrêt manuel des colonnes</label>
+                <label class="check" id="skip-option" hidden><input type="checkbox" id="skip-anim"> Passer l’animation</label>
+                <div class="mult" id="mult-wrap" hidden>
+                    <span class="mult-label" id="mult-label">Tirages par clic</span>
+                    <div class="seg" id="mult-group" role="radiogroup" aria-labelledby="mult-label"></div>
+                </div>
+            </div>
             <p class="sr-only" id="announce" role="status"></p>
         </section>
 
@@ -587,6 +598,16 @@
             <ul class="grid" id="grid"></ul>
             <button class="btn btn-block" id="open-all" type="button" hidden>Voir toutes les couleurs</button>
             <button class="btn btn-block" id="open-ach" type="button">Succès</button>
+        </section>
+
+        <section aria-labelledby="data-title">
+            <h2 id="data-title">Sauvegarde</h2>
+            <p class="map-help">Ta partie est enregistrée dans ce navigateur. Exporte-la pour la garder en lieu sûr ou la jouer sur un autre appareil.</p>
+            <div class="convert-row">
+                <button class="btn" id="export-save" type="button">Exporter la sauvegarde</button>
+                <button class="btn" id="import-save" type="button">Importer une sauvegarde</button>
+                <input type="file" id="import-file" accept=".cgsave" hidden>
+            </div>
         </section>
 
         <button class="reset" id="reset" type="button">Effacer la progression</button>
@@ -650,6 +671,8 @@
             convertInfo: $("convert-info"), convertOne: $("convert-one"), convertAll: $("convert-all"),
             slot: $("slot"), reelBox: $("reels"), stops: $("stops"), stopButtons: $("stop-buttons"),
             manual: $("manual-mode"), toast: $("toast"),
+            skipOption: $("skip-option"), skipBox: $("skip-anim"), multWrap: $("mult-wrap"), multGroup: $("mult-group"),
+            exportBtn: $("export-save"), importBtn: $("import-save"), importFile: $("import-file"),
         };
 
         /* ---------- Outils ---------- */
@@ -1301,6 +1324,7 @@
             drawMaps(buckets);
             renderConvert();
             checkAchievements();
+            refreshOptions();
         }
 
         let toastTimer;
@@ -1371,7 +1395,7 @@
                 stopReel = null;
                 stopAll = null;
                 els.stops.hidden = true;
-                els.pull.textContent = "Tirer une couleur";
+                els.pull.textContent = pullLabel();
                 setPullDisabled(locked);
                 busy = false;
             }
@@ -1384,7 +1408,9 @@
             const buckets = RARITIES.map(() => []);
             let best = null;
             let added = 0;
-            headlines.forEach((headline, p) => {
+            let sliceStart = performance.now();
+            for (let p = 0; p < headlines.length; p++) {
+                const headline = headlines[p];
                 const cols = gridColumns(headline);
                 for (let n = 0; n < PATHS; n++) {
                     let v = 0;
@@ -1399,7 +1425,13 @@
                         (tier === best.tier && n === HEADLINE_PATH && best.pull === p && best.n !== HEADLINE_PATH);
                     if (better) best = { v, tier, n, pull: p, headline, isNew: best && best.v === v ? best.isNew : isNew };
                 }
-            });
+                // Les gros tirages (×500, ×1000) se font par tranches de 30 ms : la page reste réactive.
+                if ((p & 7) === 7 && performance.now() - sliceStart > 30) {
+                    els.note.textContent = `Tirage en cours… ${fmt(p + 1)} sur ${fmt(count)}`;
+                    await new Promise(resolve => setTimeout(resolve));
+                    sliceStart = performance.now();
+                }
+            }
             state.pulls += count;
             state.last = best.v;
             saveState();
@@ -1409,12 +1441,13 @@
             const summary = `${fmt(added)} ${added > 1 ? "nouvelles couleurs" : "nouvelle couleur"} sur ${fmt(count * PATHS)} combinaisons.`;
             const note = `${count === 1 ? "" : `Meilleur des ${count} : `}${rarity}, ${status}. ${summary}`;
 
-            // Machine à sous pour un tirage simple ; les tirages ×10 et ×100 affichent directement la meilleure grille.
-            if (count === 1 && !reduceMotion) await spinReels(best.headline);
+            // Machine à sous (sur la meilleure grille du lot), sauf si l'animation est désactivée.
+            const animate = !reduceMotion && !skipActive();
+            if (animate) await spinReels(best.headline);
             else setReels(best.headline);
             showHits(best.n, RARITIES[best.tier].color);
             showColor(best.v, note, true);
-            if (!reduceMotion) {
+            if (animate) {
                 els.stage.animate(
                     [{ transform: "scale(1.03)" }, { transform: "scale(1)" }],
                     { duration: 300, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }
@@ -1835,12 +1868,96 @@
                     stopReel = null;
                     stopAll = null;
                     els.stops.hidden = true;
-                    els.pull.textContent = "Tirer une couleur";
+                    els.pull.textContent = pullLabel();
                     resolve();
                 };
                 requestAnimationFrame(frame);
             });
         }
+
+        /* ---------- Options débloquées au fil de la partie ---------- */
+        // Le tirage sans animation se débloque après SKIP_UNLOCK_PULLS tirages. Chaque multiplicateur (nombre de tirages
+        // par clic) se débloque quand la collection atteint la part `at` des 16 777 216 couleurs. Un tirage apporte
+        // environ 700 couleurs nouvelles au début, donc ces seuils tombent à peu près à : ×5 après 25 tirages,
+        // ×10 après 230, ×25 après 700, ×50 après 2 400, ×100 après 5 100, ×250 après 11 800, ×500 après 27 700 et
+        // ×1000 après 53 000 : chaque palier arrive 40 à 70 clics après le précédent, en utilisant le multiplicateur
+        // obtenu. Pour accélérer ou ralentir le jeu, il suffit de modifier ce tableau.
+
+        const SKIP_UNLOCK_PULLS = 10;
+        const MULTIPLIERS = [
+            { n: 5,    at: 0.001 },
+            { n: 10,   at: 0.01 },
+            { n: 25,   at: 0.03 },
+            { n: 50,   at: 0.10 },
+            { n: 100,  at: 0.20 },
+            { n: 250,  at: 0.40 },
+            { n: 500,  at: 0.70 },
+            { n: 1000, at: 0.90 },
+        ];
+        const SKIP_KEY = "color-gacha:skip";
+        const MULT_KEY = "color-gacha:mult";
+
+        let multiplier = 1;
+        let skipAnim = false;
+        try {
+            skipAnim = localStorage.getItem(SKIP_KEY) === "1";
+            multiplier = Number(localStorage.getItem(MULT_KEY)) || 1;
+        } catch (err) { /* préférences non mémorisées */ }
+
+        const skipUnlocked = () => state.pulls >= SKIP_UNLOCK_PULLS;
+        const skipActive = () => skipUnlocked() && skipAnim;
+        const unlockedMultipliers = () => MULTIPLIERS.filter(m => uniqueCount() / TOTAL >= m.at);
+        const pullLabel = () => (multiplier > 1 ? `Tirer ×${multiplier}` : "Tirer une couleur");
+
+        const multButtons = new Map(); // multiplicateur -> bouton
+        [1, ...MULTIPLIERS.map(m => m.n)].forEach(n => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "seg-btn";
+            b.textContent = `×${n}`;
+            b.setAttribute("role", "radio");
+            b.addEventListener("click", () => selectMultiplier(n));
+            els.multGroup.append(b);
+            multButtons.set(n, b);
+        });
+
+        let knownOptions = new Set();
+
+        // Affiche les options débloquées et notifie les nouvelles (silent : au chargement, sans notification).
+        function refreshOptions(silent) {
+            const unlocked = unlockedMultipliers().map(m => m.n);
+            const ids = [...(skipUnlocked() ? ["skip"] : []), ...unlocked.map(n => "x" + n)];
+            const fresh = ids.filter(id => !knownOptions.has(id));
+            knownOptions = new Set(ids);
+
+            if (multiplier !== 1 && !unlocked.includes(multiplier)) multiplier = 1; // option plus disponible (réinitialisation)
+            els.skipOption.hidden = !skipUnlocked();
+            els.skipBox.checked = skipAnim;
+            els.multWrap.hidden = unlocked.length === 0;
+            for (const [n, b] of multButtons) {
+                b.hidden = n !== 1 && !unlocked.includes(n);
+                b.classList.toggle("is-active", n === multiplier);
+                b.setAttribute("aria-checked", String(n === multiplier));
+            }
+            if (!busy) els.pull.textContent = pullLabel();
+
+            if (fresh.length && !silent) {
+                const names = fresh.map(id => id === "skip" ? "passer l’animation" : `×${id.slice(1)} tirages par clic`);
+                toast(`Option débloquée : ${names.join(", ")}`, 3500);
+            }
+        }
+
+        function selectMultiplier(n) {
+            if (busy || (n !== 1 && !unlockedMultipliers().some(m => m.n === n))) return;
+            multiplier = n;
+            try { localStorage.setItem(MULT_KEY, String(n)); } catch (err) { /* ignoré */ }
+            refreshOptions(true);
+        }
+
+        els.skipBox.addEventListener("change", () => {
+            skipAnim = els.skipBox.checked;
+            try { localStorage.setItem(SKIP_KEY, skipAnim ? "1" : "0"); } catch (err) { /* ignoré */ }
+        });
 
         /* ---------- Conversion des doubles ---------- */
 
@@ -2057,9 +2174,122 @@
         applyTheme();
         applyMapMode();
 
+        /* ---------- Export et import de la sauvegarde ---------- */
+        // Le fichier contient la même fiche que celle enregistrée dans le navigateur (compressée, brouillée, signée) :
+        // un fichier modifié à la main est refusé à l'import.
+
+        const FILE_MAGIC = [0x43, 0x47, 0x53, 0x34]; // « CGS4 »
+
+        async function makeExportFile() {
+            const raw = packSave();
+            const compressed = canCompress;
+            const body = scramble(compressed ? await deflate(raw) : raw);
+            const seq = Math.floor(Date.now() / 1000);
+            const sig = hashBytes(body, seq);
+            const out = new Uint8Array(17 + body.length);
+            const view = new DataView(out.buffer);
+            out.set(FILE_MAGIC, 0);
+            view.setUint32(4, seq, true);
+            out[8] = compressed ? 1 : 0;
+            view.setUint32(9, sig[0], true);
+            view.setUint32(13, sig[1], true);
+            out.set(body, 17);
+            return out;
+        }
+
+        // Renvoie les données de la sauvegarde, ou null si le fichier n'est pas valide ou a été modifié.
+        async function parseExportFile(bytes) {
+            try {
+                if (bytes.length < 18 || FILE_MAGIC.some((b, i) => bytes[i] !== b)) return null;
+                const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+                const seq = view.getUint32(4, true);
+                const body = bytes.slice(17);
+                const [a, b] = hashBytes(body, seq);
+                if (view.getUint32(9, true) !== a || view.getUint32(13, true) !== b) return null;
+                scramble(body);
+                return unpackSave(bytes[8] ? await inflate(body) : body);
+            } catch (err) {
+                return null;
+            }
+        }
+
+        function downloadBytes(bytes, name) {
+            const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = name;
+            document.body.append(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        }
+
+        async function importData(data) {
+            if (busy || locked) return;
+            busy = true;
+            setPullDisabled(true);
+            try {
+                applySave(data);
+                recent = [];
+                if (!statsReady) {
+                    els.note.textContent = "Préparation de la carte…";
+                    await new Promise(resolve => setTimeout(resolve, 30));
+                    computeCellStats();
+                }
+                checkAchievements(true);
+                refreshOptions(true);
+                if (state.last !== null) {
+                    showColor(state.last, "Sauvegarde importée");
+                } else {
+                    els.stage.classList.add("is-empty");
+                    els.stage.style.background = "";
+                    els.stage.style.color = "";
+                    clearReels();
+                    els.note.textContent = "Ta première couleur t’attend.";
+                }
+                render();
+                saveState();
+                flushNow();
+                toast("Sauvegarde importée");
+            } catch (err) { // l'état en mémoire peut être incohérent : la page repart de la dernière sauvegarde enregistrée
+                toast("Import impossible : la page va se recharger", 3000);
+                setTimeout(() => location.reload(), 1500);
+            } finally {
+                setPullDisabled(locked);
+                busy = false;
+                renderConvert();
+            }
+        }
+
+        els.exportBtn.addEventListener("click", async () => {
+            try {
+                downloadBytes(await makeExportFile(), `color-gacha-${new Date().toISOString().slice(0, 10)}.cgsave`);
+                toast("Sauvegarde exportée");
+            } catch (err) {
+                toast("Export impossible");
+            }
+        });
+        els.importBtn.addEventListener("click", () => {
+            if (!busy && !locked) els.importFile.click();
+        });
+        els.importFile.addEventListener("change", async () => {
+            const file = els.importFile.files[0];
+            els.importFile.value = "";
+            if (!file) return;
+            const data = await parseExportFile(new Uint8Array(await file.arrayBuffer()));
+            if (!data) {
+                toast("Fichier invalide ou modifié", 3500);
+                return;
+            }
+            const colors = data.tierCounts.reduce((a, b) => a + b, 0);
+            if (!confirm(`Remplacer ta partie actuelle (${fmt(uniqueCount())} couleurs) par la sauvegarde importée ` +
+                `(${fmt(colors)} couleurs, ${fmt(data.pulls)} tirages) ?`)) return;
+            await importData(data);
+        });
+
         /* ---------- Événements ---------- */
 
-        pullButtons.forEach(btn => btn.addEventListener("click", () => pull(Number(btn.dataset.count) || 1)));
+        els.pull.addEventListener("click", () => pull(multiplier));
 
         // Une sauvegarde en attente est écrite dès que la page est masquée ou quittée.
         document.addEventListener("visibilitychange", () => {
@@ -2149,6 +2379,7 @@
                     saveState();
                 }
                 checkAchievements(true);
+                refreshOptions(true);
 
                 if (state.last !== null) showColor(state.last, "Dernier tirage");
                 render();
