@@ -1398,6 +1398,7 @@
                 els.pull.textContent = pullLabel();
                 setPullDisabled(locked);
                 busy = false;
+                renderConvert(); // les boutons de conversion étaient désactivés pendant le tirage
             }
         }
 
