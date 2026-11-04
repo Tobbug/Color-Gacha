@@ -570,7 +570,7 @@
             </div>
         </dl>
 
-        <section aria-labelledby="convert-title">
+        <section id="convert-section" aria-labelledby="convert-title" hidden>
             <h2 id="convert-title">Doubles</h2>
             <p class="map-help" id="convert-info"></p>
             <div class="convert-row">
@@ -670,7 +670,7 @@
             openAch: $("open-ach"), achDialog: $("ach-dialog"), achClose: $("ach-close"), achList: $("ach-list"),
             convertInfo: $("convert-info"), convertOne: $("convert-one"), convertAll: $("convert-all"),
             slot: $("slot"), reelBox: $("reels"), stops: $("stops"), stopButtons: $("stop-buttons"),
-            manual: $("manual-mode"), toast: $("toast"),
+            manual: $("manual-mode"), toast: $("toast"), convertSection: $("convert-section"),
             skipOption: $("skip-option"), skipBox: $("skip-anim"), multWrap: $("mult-wrap"), multGroup: $("mult-group"),
             exportBtn: $("export-save"), importBtn: $("import-save"), importFile: $("import-file"),
         };
@@ -1341,6 +1341,20 @@
             toastTimer = setTimeout(() => els.toast.classList.remove("is-visible"), duration);
         }
 
+        // Plusieurs notifications déclenchées en même temps (succès, option débloquée, premier double) sont regroupées.
+        let notes = [], notesTimer = null;
+        function announce(message) {
+            notes.push(message);
+            if (notesTimer !== null) return;
+            notesTimer = setTimeout(() => {
+                notesTimer = null;
+                const count = notes.length;
+                const text = notes.join(" · ");
+                notes = [];
+                toast(text, 3500 + 1500 * (count - 1));
+            }, 0);
+        }
+
         /* ---------- Dernières couleurs (en mémoire seulement) ---------- */
 
         const RECENT_COUNT = 20;
@@ -1944,7 +1958,7 @@
 
             if (fresh.length && !silent) {
                 const names = fresh.map(id => id === "skip" ? "passer l’animation" : `×${id.slice(1)} tirages par clic`);
-                toast(`Option débloquée : ${names.join(", ")}`, 3500);
+                announce(`Option débloquée : ${names.join(", ")}`);
             }
         }
 
@@ -1964,14 +1978,53 @@
 
         const CONVERT_COST = 10; // nombre de doubles nécessaires pour obtenir 1 nouvelle couleur
 
+        let convertVisible = false; // le menu n'apparaît qu'au premier double
+        let announceReady = false;  // faux pendant le chargement : pas de notification pour ce qui est déjà acquis
+
         function renderConvert() {
-            const units = Math.floor(spare / CONVERT_COST);
-            els.convertInfo.textContent =
-                `${fmt(spare)} doubles en réserve. ${CONVERT_COST} doubles donnent 1 couleur jamais obtenue.`;
+            const complete = uniqueCount() >= TOTAL;
+            const units = complete ? 0 : Math.floor(spare / CONVERT_COST);
+            const show = spare > 0 || state.conv > 0; // il reste visible une fois les doubles convertis
+            if (show && !convertVisible && announceReady) {
+                announce(`Premier double ! Tu peux convertir ${CONVERT_COST} doubles en 1 nouvelle couleur.`);
+            }
+            convertVisible = show;
+            els.convertSection.hidden = !show;
+            els.convertInfo.textContent = complete
+                ? "Tu possèdes déjà toutes les couleurs !"
+                : `${fmt(spare)} doubles en réserve. ${CONVERT_COST} doubles donnent 1 couleur jamais obtenue.`;
             els.convertOne.textContent = `Convertir ${CONVERT_COST} doubles`;
             els.convertAll.textContent = units > 1 ? `Tout convertir (${fmt(units)} couleurs)` : "Tout convertir";
             els.convertOne.disabled = units < 1 || locked || busy;
             els.convertAll.disabled = units < 1 || locked || busy;
+        }
+
+        // Liste exacte des couleurs manquantes, par rareté (utilisée quand le tirage au hasard ne les trouve plus).
+        function buildMissingPool() {
+            const pool = RARITIES.map(() => []);
+            for (let v = 0; v < TOTAL; v++) if (!isOwned(v)) pool[tierOfCode(v)].push(v);
+            return pool;
+        }
+
+        // Tire une couleur manquante en gardant les chances de rareté d'un tirage, parmi les raretés où il en reste.
+        function takeFromPool(pool) {
+            let total = 0;
+            RARITIES.forEach((r, t) => { if (pool[t].length) total += r.weight; });
+            if (!total) return -1;
+            let roll = Math.random() * total;
+            let tier = -1;
+            for (let t = 0; t < RARITIES.length; t++) {
+                if (!pool[t].length) continue;
+                tier = t;
+                roll -= RARITIES[t].weight;
+                if (roll < 0) break;
+            }
+            const list = pool[tier];
+            const k = rnd(list.length);
+            const v = list[k];
+            list[k] = list[list.length - 1];
+            list.pop();
+            return v;
         }
 
         // Convertit jusqu'à maxUnits lots de doubles en couleurs jamais obtenues (même chances de rareté qu'un tirage).
@@ -1994,12 +2047,17 @@
             let got = 0;
             let best = null;
             let sliceStart = performance.now();
+            let pool = null; // construite seulement quand il reste peu de couleurs à obtenir
             for (let i = 0; i < units; i++) {
                 let v = -1;
-                for (let tries = 0; tries < 1000 && v < 0; tries++) {
-                    const candidate = drawCode();
-                    if (!isOwned(candidate)) v = candidate;
+                if (!pool) {
+                    for (let tries = 0; tries < 200 && v < 0; tries++) {
+                        const candidate = drawCode();
+                        if (!isOwned(candidate)) v = candidate;
+                    }
+                    if (v < 0) pool = buildMissingPool(); // le hasard ne trouve plus : on passe à la liste exacte
                 }
+                if (pool && v < 0) v = takeFromPool(pool);
                 if (v < 0) break;
                 const tier = tierOfCode(v);
                 acquire(v, tier);
@@ -2014,7 +2072,7 @@
                 }
             }
             if (!got) {
-                toast("Aucune couleur disponible pour la conversion");
+                toast(uniqueCount() >= TOTAL ? "Tu possèdes déjà toutes les couleurs !" : "Aucune couleur disponible pour la conversion");
                 return;
             }
 
@@ -2080,9 +2138,9 @@
             els.openAch.textContent = `Succès (${achieved.size} sur ${ACHIEVEMENTS.length})`;
             saveState();
             if (!silent) {
-                toast(unlocked.length === 1
+                announce(unlocked.length === 1
                     ? `Succès débloqué : ${unlocked[0].name}`
-                    : `${unlocked.length} succès débloqués : ${unlocked.map(a => a.name).join(", ")}`, 3500);
+                    : `${unlocked.length} succès débloqués : ${unlocked.map(a => a.name).join(", ")}`);
             }
         }
 
@@ -2239,6 +2297,7 @@
                 }
                 checkAchievements(true);
                 refreshOptions(true);
+                convertVisible = spare > 0 || state.conv > 0;
                 if (state.last !== null) {
                     showColor(state.last, "Sauvegarde importée");
                 } else {
@@ -2325,6 +2384,7 @@
             cellTier.fill(-1);
             cellOwned.fill(0); // le nombre de couleurs possibles par case ne change pas
             achieved = new Set();
+            convertVisible = false;
             recent = [];
             els.stage.classList.add("is-empty");
             els.stage.style.background = "";
@@ -2400,6 +2460,7 @@
                 }
             } finally {
                 setPullDisabled(locked);
+                announceReady = true;
             }
         }
 
